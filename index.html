@@ -5,11 +5,13 @@
     <title>Selfie Uploader</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-      body { font-family: system-ui, sans-serif; padding: 16px; }
-      #preview { margin-top: 16px; max-width: 100%; border-radius: 12px; }
-      button, input { margin-top: 12px; width: 100%; padding: 12px; border-radius: 10px; }
-    </style>
+<style>
+  body { font-family: system-ui, sans-serif; padding: 16px; }
+  #preview { margin-top: 16px; max-width: 100%; border-radius: 12px; }
+  button, input { margin-top: 12px; width: 100%; padding: 12px; border-radius: 10px; }
+  #gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
+  #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; }
+</style>
   </head>
   <body>
     <h3>Upload your selfie</h3>
@@ -17,64 +19,73 @@
     <button id="uploadBtn">Upload</button>
 
     <img id="preview" alt="Preview will appear here" />
+    <div id="gallery"></div>
 
     <script>
-      const BACKEND_BASE = "https://express-ment-egg-keyboards.trycloudflare.com"; // <— change this
-      const tg = window.Telegram.WebApp;
-      tg.ready();
+  const BACKEND_BASE = "https://express-ment-egg-keyboards.trycloudflare.com"; // change
+  const tg = window.Telegram.WebApp; tg.ready();
 
-      async function requestPresign(file) {
-        const initData = tg.initData || ""; // signed payload from Telegram (present only inside Telegram)
-        const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            initData,
-            filename: file.name,
-            contentType: file.type
-          })
-        });
-        if (!res.ok) throw new Error("Failed to presign");
-        return res.json(); // { uploadUrl, key }
-      }
+  async function requestPresign(file) {
+    const initData = tg.initData || "";
+    const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, filename: file.name, contentType: file.type })
+    });
+    if (!res.ok) throw new Error("Failed to presign");
+    return res.json(); // { uploadUrl, key }
+  }
 
-      async function finalize(key) {
-        const initData = tg.initData || "";
-        const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData, key })
-        });
-        if (!res.ok) throw new Error("Failed to finalize");
-        return res.json(); // { previewUrl }
-      }
+  async function finalize({ key, sizeBytes, contentType }) {
+    const initData = tg.initData || "";
+    const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, key, sizeBytes, contentType })
+    });
+    if (!res.ok) throw new Error("Failed to finalize");
+    return res.json(); // { previewUrl, gallery:[{key,url}] }
+  }
 
-      document.getElementById("uploadBtn").onclick = async () => {
-        const file = document.getElementById("file").files[0];
-        if (!file) { alert("Pick a file first"); return; }
+  function renderGallery(items) {
+    const wrap = document.getElementById("gallery");
+    wrap.innerHTML = "";
+    items.forEach(it => {
+      const img = document.createElement("img");
+      img.src = it.url;
+      img.alt = it.key;
+      wrap.appendChild(img);
+    });
+  }
 
-        try {
-          const { uploadUrl, key } = await requestPresign(file);
+  document.getElementById("uploadBtn").onclick = async () => {
+    const file = document.getElementById("file").files[0];
+    if (!file) { alert("Pick a file first"); return; }
 
-          // IMPORTANT: your bucket policy requires SSE → include the header!
-          const putRes = await fetch(uploadUrl, {
-            method: "PUT",
-            headers: {
-              "Content-Type": file.type,
-              "x-amz-server-side-encryption": "AES256"
-            },
-            body: file
-          });
-          if (!putRes.ok) throw new Error("Upload failed");
+    try {
+      const { uploadUrl, key } = await requestPresign(file);
 
-          const { previewUrl } = await finalize(key);
-          document.getElementById("preview").src = previewUrl;
-          tg.HapticFeedback?.notificationOccurred("success");
-        } catch (e) {
-          alert(e.message);
-          tg.HapticFeedback?.notificationOccurred("error");
-        }
-      };
-    </script>
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type,
+          "x-amz-server-side-encryption": "AES256"
+        },
+        body: file
+      });
+      if (!putRes.ok) throw new Error("Upload failed");
+
+      const { previewUrl, gallery } = await finalize({
+        key, sizeBytes: file.size, contentType: file.type
+      });
+      document.getElementById("preview").src = previewUrl;
+      renderGallery(gallery || []);
+      tg.HapticFeedback?.notificationOccurred("success");
+    } catch (e) {
+      alert(e.message);
+      tg.HapticFeedback?.notificationOccurred("error");
+    }
+  };
+</script>
   </body>
 </html>
