@@ -173,15 +173,33 @@
       }catch(e){ console.error(e); setStatus("Failed to load galleries","err"); }
     });
   </script>
-  <script>
-   async function fetchTryOnGallery() {
+ <script>
+  async function fetchTryOnGallery() {
     const initData = window.Telegram?.WebApp?.initData || window.initData || '';
-    const params = new URLSearchParams({ initData });
-    const res = await fetch(`${BACKEND_BASE}/tryon/gallery?` + params.toString(), {
-      credentials: 'omit' // same as your other calls
+    const body = { initData, limit: 30 };
+
+    // Try POST first (matches your selfies/garments API style)
+    const postUrl = `${BACKEND_BASE}/tryon/gallery`;
+    let res = await fetch(postUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error('Failed to load gallery');
-    return await res.json();
+
+    // If POST isn’t supported on the server, fallback to GET with query string
+    if (!res.ok && res.status === 405) {
+      const params = new URLSearchParams({ initData, limit: '30' });
+      const getUrl = `${BACKEND_BASE}/tryon/gallery?` + params.toString();
+      res = await fetch(getUrl, { credentials: 'omit' });
+    }
+
+    if (!res.ok) {
+      // Surface the real status + text to debug quickly
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Gallery ${res.status} ${res.statusText}${txt ? ` — ${txt}` : ''}`);
+    }
+    return await res.json(); // [{ id, createdAt, imageUrl }]
   }
 
   function renderTryOnGallery(items) {
@@ -190,15 +208,14 @@
     const err  = document.getElementById('tryon-error');
 
     err.style.display = 'none';
-
     grid.innerHTML = '';
+
     if (!items || items.length === 0) {
       empty.style.display = 'block';
       return;
     }
     empty.style.display = 'none';
 
-    // Render tiles
     for (const it of items) {
       const url = it.imageUrl;
       if (!url) continue;
@@ -211,8 +228,10 @@
       img.decoding = 'async';
       img.src = url;
 
-      // Optional: click to open full image in a new tab
-      img.addEventListener('click', () => window.open(url, '_blank', 'noopener,noreferrer'));
+      img.addEventListener('click', () => {
+        if (window.Telegram?.WebApp?.openLink) window.Telegram.WebApp.openLink(url);
+        else window.open(url, '_blank', 'noopener,noreferrer');
+      });
 
       div.appendChild(img);
       grid.appendChild(div);
@@ -223,17 +242,17 @@
     const err = document.getElementById('tryon-error');
     try {
       const items = await fetchTryOnGallery();
+      console.debug('tryon items', items); // helpful while debugging
       renderTryOnGallery(items);
     } catch (e) {
+      console.error(e);
       err.textContent = e.message || 'Error loading gallery';
       err.style.display = 'block';
     }
   }
 
-  // Load on page open and refresh occasionally
   document.addEventListener('DOMContentLoaded', () => {
     loadTryOnGallery();
-    // Optional: refresh every 30s so new results appear automatically
     setInterval(loadTryOnGallery, 30000);
   });
 </script>
