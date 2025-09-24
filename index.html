@@ -75,13 +75,18 @@
     });
   }
 
-  document.getElementById("uploadBtn").onclick = async () => {
-    const file = document.getElementById("file").files[0];
-    if (!file) { alert("Pick a file first"); return; }
+    document.getElementById("uploadBtn").onclick = async () => {
+    const original = document.getElementById("file").files[0];
+    if (!original) { alert("Pick a file first"); return; }
 
     try {
+      // 1) Compress to <= 1.5 MB
+      const file = await compressImageToLimit(original, 1_500_000, 2048);
+
+      // 2) Presign using the NEW name and type (likely .jpg / image/jpeg)
       const { uploadUrl, key } = await requestPresign(file);
 
+      // 3) Upload compressed blob (SSE still required by your bucket policy)
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         headers: {
@@ -92,9 +97,11 @@
       });
       if (!putRes.ok) throw new Error("Upload failed");
 
+      // 4) Finalize with the compressed size/type
       const { previewUrl, gallery } = await finalize({
         key, sizeBytes: file.size, contentType: file.type
       });
+
       document.getElementById("preview").src = previewUrl;
       renderGallery(gallery || []);
       tg.HapticFeedback?.notificationOccurred("success");
@@ -103,6 +110,95 @@
       tg.HapticFeedback?.notificationOccurred("error");
     }
   };
+</script>
+<script>
+  const MAX_BYTES = 1_500_000; // 1.5 MB
+  const MAX_DIM   = 2048;      // optional: downscale large images
+
+  // Read a File/Blob into an ImageBitmap (fast) or HTMLImageElement fallback
+  async function fileToBitmap(file) {
+    if ('createImageBitmap' in window) {
+      const bitmap = await createImageBitmap(file);
+      return { img: bitmap, w: bitmap.width, h: bitmap.height, close: () => bitmap.close() };
+    }
+    // Fallback for old webviews
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    URL.revokeObjectURL(url);
+    return { img, w: img.naturalWidth, h: img.naturalHeight, close: () => {} };
+  }
+
+  // Draw image into a canvas with optional downscale to MAX_DIM
+  function drawToCanvas(source, targetW, targetH) {
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    // better quality scaling on some devices
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, targetW, targetH);
+    return canvas;
+  }
+
+  // Binary search JPEG quality to fit under MAX_BYTES (with a safety margin)
+  async function canvasToJpegUnder(canvas, maxBytes = MAX_BYTES) {
+    let lo = 0.5, hi = 0.95, bestBlob = null;
+
+    // Try high quality first
+    let blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', hi));
+    if (!blob) throw new Error("Canvas export failed");
+    if (blob.size <= maxBytes) return blob;
+
+    // Then binary search quality
+    for (let i = 0; i < 7; i++) { // ~7 iterations is enough
+      const mid = (lo + hi) / 2;
+      blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', mid));
+      if (!blob) throw new Error("Canvas export failed");
+      if (blob.size <= maxBytes) {
+        bestBlob = blob; hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+    if (bestBlob) return bestBlob;
+
+    // If even q=0.5 is too big, we’ll return that (will still be > max)
+    return blob;
+  }
+
+  // Main compression function: optional downscale + quality search
+  async function compressImageToLimit(file, maxBytes = MAX_BYTES, maxDim = MAX_DIM) {
+    const { img, w, h, close } = await fileToBitmap(file);
+    try {
+      // compute target size within maxDim
+      let tw = w, th = h;
+      const scale = Math.max(w, h) > maxDim ? maxDim / Math.max(w, h) : 1;
+      if (scale < 1) { tw = Math.round(w * scale); th = Math.round(h * scale); }
+
+      const canvas = drawToCanvas(img, tw, th);
+      let jpegBlob = await canvasToJpegUnder(canvas, maxBytes);
+
+      // If still too big, progressively shrink dimensions and retry
+      let attempts = 0;
+      while (jpegBlob.size > maxBytes && attempts < 3 && Math.max(tw, th) > 512) {
+        tw = Math.round(tw * 0.85);
+        th = Math.round(th * 0.85);
+        const c2 = drawToCanvas(img, tw, th);
+        jpegBlob = await canvasToJpegUnder(c2, maxBytes);
+        attempts++;
+      }
+      return new File([jpegBlob], replaceExt(file.name, '.jpg'), { type: 'image/jpeg' });
+    } finally {
+      close();
+    }
+  }
+
+  function replaceExt(name, newExt) {
+    const i = name.lastIndexOf('.');
+    return (i > 0 ? name.slice(0, i) : name) + newExt;
+  }
 </script>
   </body>
 </html>
