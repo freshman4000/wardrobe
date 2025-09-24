@@ -1,5 +1,5 @@
 [build]
-  publish = "."
+  publish = "public"
 
 [[headers]]
   for = "/*"
@@ -10,6 +10,6 @@
     # Do NOT set X-Frame-Options/CSP frame-ancestors here; Telegram opens a webview, not an iframe.
 
 [[headers]]
-  for = "/index.html"
+  for = "/selfie.html"
   [headers.values]
     Cache-Control = "no-store"
