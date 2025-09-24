@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wardrobe · Clothes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{--pad:16px}
+    body{font-family:system-ui,sans-serif; padding:var(--pad);}
+    h3{margin:0 0 8px}
+    #status{font-size:12px; opacity:.75; min-height:1.2em; margin-top:6px}
+    button,input{margin-top:12px; width:100%; padding:12px; border-radius:10px}
+    #gallery{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:16px}
+    .tile{position:relative}
+    .tile img{width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:10px}
+    .del{position:absolute; top:6px; right:6px; width:28px; height:28px; border:none; border-radius:999px;
+         background:rgba(0,0,0,.55); color:#fff; font-weight:700; cursor:pointer}
+    a.back{display:inline-block; margin-top:8px}
+    .err{color:#b00020}
+    .ok{color:#0a7b32}
+  </style>
+</head>
+<body>
+  <a class="back" href="/">← Back</a>
+  <h3>Upload clothes (max 3)</h3>
+  <input id="files" type="file" accept="image/*" multiple />
+  <button id="uploadBtn">Upload selected</button>
+  <div id="status"></div>
+  <div id="gallery"></div>
+
+  <script>
+    // --- Config / Telegram ---
+    const BACKEND_BASE = "<YOUR_BACKEND_BASE>"; // e.g., https://your-tunnel.trycloudflare.com
+    const tg = window.Telegram?.WebApp || { initData: "" };
+    tg?.ready?.();
+
+    // --- Helpers ---
+    const $ = s => document.querySelector(s);
+    const setStatus = (m, cls="") => { const el=$("#status"); el.className=cls; el.textContent=m||""; };
+    const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
+
+    // --- Backend calls for garments ---
+    async function garmentsList(limit=12){
+      const initData=tg.initData||"";
+      const res=await fetch(`${BACKEND_BASE}/garments/list`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData, limit })
+      });
+      if(!res.ok) throw new Error("Failed to load garments");
+      return res.json(); // [{key,url}]
+    }
+    async function garmentsPresign(file){
+      const initData=tg.initData||"";
+      const res=await fetch(`${BACKEND_BASE}/garments/presign-upload`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData, filename:file.name, contentType:file.type })
+      });
+      if(!res.ok) throw new Error("Failed to presign garment");
+      return res.json(); // { uploadUrl, key }
+    }
+    async function garmentsFinalize({key,sizeBytes,contentType}){
+      const initData=tg.initData||"";
+      const res=await fetch(`${BACKEND_BASE}/garments/finalize`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData, key, sizeBytes, contentType })
+      });
+      if(!res.ok) throw new Error("Failed to finalize garment");
+      return res.json(); // { ok:true }
+    }
+    async function garmentsDelete(key){
+      const initData=tg.initData||"";
+      const res=await fetch(`${BACKEND_BASE}/garments/delete`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData, key })
+      });
+      if(!res.ok) throw new Error("Failed to delete garment");
+      return res.json();
+    }
+
+    // --- Simple compression (reuse from selfie page if you want) ---
+    async function compress(file, maxBytes=1_500_000, maxDim=2048){
+      const url=URL.createObjectURL(file); const img=new Image();
+      await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
+      URL.revokeObjectURL(url);
+      const c=document.createElement('canvas');
+      const scale = Math.max(img.naturalWidth,img.naturalHeight) > maxDim
+        ? maxDim/Math.max(img.naturalWidth,img.naturalHeight) : 1;
+      c.width=Math.round(img.naturalWidth*scale); c.height=Math.round(img.naturalHeight*scale);
+      const ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.drawImage(img,0,0,c.width,c.height);
+      let lo=0.5, hi=0.95, best=null;
+      let blob=await new Promise(r=>c.toBlob(r,'image/jpeg',hi));
+      if(blob.size<=maxBytes) return new File([blob], replaceExt(file.name,'.jpg'), {type:'image/jpeg'});
+      for(let i=0;i<7;i++){ const mid=(lo+hi)/2; blob=await new Promise(r=>c.toBlob(r,'image/jpeg',mid));
+        if(blob.size<=maxBytes){best=blob;hi=mid;} else {lo=mid;} }
+      return new File([best||blob], replaceExt(file.name,'.jpg'), {type:'image/jpeg'});
+    }
+    const replaceExt=(n,e)=> (n.lastIndexOf('.')>0? n.slice(0,n.lastIndexOf('.')):n)+e;
+
+    // --- Gallery render w/ delete + max 3 ---
+    async function loadGallery(){
+      const items=await garmentsList(12);
+      renderGallery(items);
+      // show info about remaining slots
+      const remaining=Math.max(0, 3 - items.length);
+      setStatus(`You can upload ${remaining} more item(s).`, remaining? "": "ok");
+    }
+
+    function renderGallery(items){
+      const wrap=$("#gallery"); wrap.innerHTML="";
+      items.forEach(it=>{
+        const tile=document.createElement("div"); tile.className="tile";
+        const img=document.createElement("img"); img.src=it.url; img.alt=it.key;
+        const del=document.createElement("button"); del.className="del"; del.textContent="×"; del.title="Delete";
+        del.onclick=async (e)=>{
+          e.stopPropagation();
+          if(!confirm("Delete this clothing item?")) return;
+          try{ await garmentsDelete(it.key); await loadGallery(); haptic("success"); }
+          catch(err){ alert(err.message||"Delete failed"); haptic("error"); }
+        };
+        tile.append(img, del); wrap.appendChild(tile);
+      });
+    }
+
+    // --- Upload handler (max 3 total) ---
+    document.getElementById("uploadBtn").onclick = async ()=>{
+      const files=[...document.getElementById("files").files];
+      if(files.length===0){ alert("Pick files first"); return; }
+
+      // check current count
+      const current=await garmentsList(12);
+      if(current.length>=3){ setStatus("You already have 3 items.", "err"); return; }
+
+      // only take up to remaining slots
+      const remaining = 3 - current.length;
+      const toUpload = files.slice(0, remaining);
+
+      try{
+        for(const f of toUpload){
+          setStatus(`Compressing ${f.name}…`);
+          const file=await compress(f);
+          setStatus(`Presigning ${file.name}…`);
+          const { uploadUrl, key } = await garmentsPresign(file);
+          setStatus(`Uploading ${file.name}…`);
+          const put=await fetch(uploadUrl,{ method:"PUT",
+            headers:{ "Content-Type": file.type, "x-amz-server-side-encryption": "AES256" },
+            body:file
+          });
+          if(!put.ok) throw new Error("Upload failed");
+          setStatus("Finalizing…");
+          await garmentsFinalize({ key, sizeBytes:file.size, contentType:file.type });
+        }
+        await loadGallery();
+        setStatus("Done ✔", "ok"); haptic("success");
+      }catch(e){ console.error(e); setStatus(e.message||"Something went wrong", "err"); haptic("error"); }
+    };
+
+    document.addEventListener("DOMContentLoaded", ()=>{ loadGallery().catch(console.error); });
+  </script>
+</body>
+</html>
