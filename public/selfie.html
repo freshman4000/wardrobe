@@ -274,10 +274,11 @@
           });
           if (!putRes.ok) throw new Error("Upload failed");
           setStatus("Finalizing…");
-          const { previewUrl } = await finalize({ key, sizeBytes: file.size, contentType: file.type });
+          const { previewUrl, gallery, duplicate, message } = await finalize({ key, sizeBytes: file.size, contentType: file.type });
           document.getElementById("preview").src = previewUrl;
           await loadGallery(); // refresh after finalize
-          setStatus("Done ✔", "ok"); haptic("success");
+          setStatus(message, duplicate ? "warn" : "ok");
+          tg.HapticFeedback?.notificationOccurred(duplicate ? "warning" : "success");
         } catch (e) {
           console.error(e); setStatus(e.message || "Something went wrong", "err"); haptic("error"); alert(e.message || "Something went wrong");
         }
