@@ -6,152 +6,140 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    :root { --pad:16px }
-    body { font-family: system-ui, sans-serif; padding: var(--pad); }
-    a.back { display:inline-block; margin-bottom:8px; }
-    h3 { margin: 0 0 8px; }
-    #status { font-size:12px; opacity:.85; min-height:1.4em; margin-top:6px; }
-    img#result { max-width:100%; border-radius:12px; margin-top:12px; display:none }
-    button { margin-top:12px; width:100%; padding:12px; border-radius:10px; }
-    .err { color:#b00020 }
-    .ok { color:#0a7b32 }
-    .warn { color:#b06a00 }
-    .muted { opacity:.7 }
+    :root{--pad:16px}
+    body{font-family:system-ui,sans-serif; padding:var(--pad);}
+    h3{margin:12px 0 4px}
+    #status{font-size:12px; opacity:.75; min-height:1.2em; margin-top:6px}
+    .gallery{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:8px}
+    .tile{position:relative; cursor:pointer; border-radius:12px; overflow:hidden; outline:2px solid transparent; outline-offset:2px}
+    .tile img{width:100%; aspect-ratio:1/1; object-fit:cover}
+    .tile.selected{outline-color:#4a90e2}
+    #result{max-width:100%; border-radius:12px; margin-top:12px; display:none}
+    button{margin-top:12px; width:100%; padding:12px; border-radius:10px}
+    .err{color:#b00020}
+    .ok{color:#0a7b32}
   </style>
 </head>
 <body>
-  <a class="back" href="/">← Back</a>
-  <h3>Dress up</h3>
+  <a href="/">← Back</a>
+  <h3>Pick your selfie</h3>
+  <div id="selfieGallery" class="gallery"></div>
 
-  <button id="startBtn">Start Try-On</button>
-  <div id="status" class="muted"></div>
+  <h3>Pick clothes</h3>
+  <div id="garmentGallery" class="gallery"></div>
+
+  <button id="startBtn" disabled>Start Try-On</button>
+  <div id="status"></div>
   <img id="result" alt="Result" />
 
   <script>
     // --- Config / Telegram ---
-    const BACKEND_BASE = "<YOUR_BACKEND_BASE>"; // e.g. https://your-tunnel.trycloudflare.com
+    const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
     const tg = window.Telegram?.WebApp || { initData: "" };
     tg?.ready?.();
 
-    // --- Helpers ---
     const $ = s => document.querySelector(s);
+    const setStatus = (m, cls="") => { const el=$("#status"); el.className=cls; el.textContent=m||""; };
     const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
-    function setStatus(msg, cls="") {
-      const el = $("#status");
-      el.className = cls || "muted";
-      el.textContent = msg || "";
-    }
 
-    // --- API calls ---
-    async function startTryOn() {
-      const initData = tg.initData || "";
-      const res = await fetch(`${BACKEND_BASE}/tryon/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData })
+    let selectedSelfie = null;
+    let selectedGarments = new Set();
+
+    // --- Backend calls ---
+    async function listSelfies(limit=12){
+      const res=await fetch(`${BACKEND_BASE}/selfies/list`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData: tg.initData||"", limit })
       });
-      if (res.status === 409) {
-        // Optional: backend can 409 if no selfie/garments; surface message
-        const { message } = await res.json().catch(()=>({message:"Conflict"}));
-        throw new Error(message || "Cannot start: missing selfie or garments");
-      }
-      if (!res.ok) throw new Error("Failed to start try-on");
+      if(!res.ok) throw new Error("Failed to load selfies");
+      return res.json(); // [{key,url}]
+    }
+    async function listGarments(limit=12){
+      const res=await fetch(`${BACKEND_BASE}/garments/list`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData: tg.initData||"", limit })
+      });
+      if(!res.ok) throw new Error("Failed to load garments");
+      return res.json();
+    }
+    async function startTryOn(selfieKey, garmentKeys){
+      const res=await fetch(`${BACKEND_BASE}/tryon/start`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData: tg.initData||"", selfieKey, garmentKeys })
+      });
+      if(!res.ok) throw new Error("Failed to start try-on");
       return res.json(); // { jobId }
     }
-
-    async function checkTryOn(jobId) {
-      const res = await fetch(`${BACKEND_BASE}/tryon/status?jobId=` + encodeURIComponent(jobId));
-      if (!res.ok) throw new Error("Failed to check status");
-      return res.json(); // { status: "queued|running|succeeded|failed", imageUrl?, message? }
+    async function checkTryOn(jobId){
+      const res=await fetch(`${BACKEND_BASE}/tryon/status?jobId=`+encodeURIComponent(jobId));
+      if(!res.ok) throw new Error("Status failed");
+      return res.json(); // { status, imageUrl? }
     }
 
-    // --- Polling with gentle UX ---
-    let pollingAbort = null;
+    // --- Gallery renderers ---
+    function renderSelfieGallery(items){
+      const wrap=$("#selfieGallery"); wrap.innerHTML="";
+      items.forEach(it=>{
+        const tile=document.createElement("div"); tile.className="tile"; tile.dataset.key=it.key;
+        const img=document.createElement("img"); img.src=it.url; img.alt=it.key;
+        tile.onclick=()=>{
+          selectedSelfie = (selectedSelfie===it.key? null : it.key);
+          renderSelfieGallery(items); updateButton();
+        };
+        if(selectedSelfie===it.key) tile.classList.add("selected");
+        tile.appendChild(img); wrap.appendChild(tile);
+      });
+    }
+    function renderGarmentGallery(items){
+      const wrap=$("#garmentGallery"); wrap.innerHTML="";
+      items.forEach(it=>{
+        const tile=document.createElement("div"); tile.className="tile"; tile.dataset.key=it.key;
+        const img=document.createElement("img"); img.src=it.url; img.alt=it.key;
+        tile.onclick=()=>{
+          if(selectedGarments.has(it.key)) selectedGarments.delete(it.key);
+          else selectedGarments.add(it.key);
+          renderGarmentGallery(items); updateButton();
+        };
+        if(selectedGarments.has(it.key)) tile.classList.add("selected");
+        tile.appendChild(img); wrap.appendChild(tile);
+      });
+    }
 
-    async function poll(jobId) {
-      setStatus("Working… this can take up to a minute.");
-      const maxAttempts = 40; // ~80s at 2s interval
-      let attempt = 0;
-      const localAbort = new AbortController();
-      pollingAbort = localAbort;
+    function updateButton(){
+      $("#startBtn").disabled = !(selectedSelfie && selectedGarments.size>0);
+    }
 
-      while (attempt++ < maxAttempts && !localAbort.signal.aborted) {
-        try {
-          const s = await checkTryOn(jobId);
-          if (s.status === "succeeded" && s.imageUrl) {
-            $("#result").src = s.imageUrl;
-            $("#result").style.display = "block";
-            setStatus("Done ✔", "ok");
-            haptic("success");
-            pollingAbort = null;
-            return;
-          }
-          if (s.status === "failed") {
-            setStatus(s.message || "Try-on failed", "err");
-            haptic("error");
-            pollingAbort = null;
-            return;
-          }
-          // queued / running
-          const dots = ".".repeat((attempt % 3) + 1);
-          setStatus((s.status === "queued" ? "Queued" : "Working") + dots);
-        } catch (e) {
-          // transient network hiccup — keep trying a few times
-          if (attempt % 5 === 0) {
-            setStatus("Still working…", "warn");
-          }
+    // --- Polling ---
+    async function poll(jobId){
+      setStatus("Working…");
+      for(let i=0;i<40;i++){
+        const s=await checkTryOn(jobId);
+        if(s.status==="succeeded" && s.imageUrl){
+          $("#result").src=s.imageUrl; $("#result").style.display="block";
+          setStatus("Done ✔","ok"); return;
         }
-        await new Promise(r => setTimeout(r, 2000));
+        if(s.status==="failed"){ setStatus("Try-on failed","err"); return; }
+        await new Promise(r=>setTimeout(r,2000));
       }
-      if (!localAbort.signal.aborted) {
-        setStatus("Timed out. Please try again.", "err");
-        haptic("error");
-      }
-      pollingAbort = null;
+      setStatus("Timed out","err");
     }
 
-    // --- Button handler ---
-    const startBtn = $("#startBtn");
-    startBtn.onclick = async () => {
-      if (pollingAbort) {
-        // Optional: allow cancel if already running
-        pollingAbort.abort();
-        pollingAbort = null;
-        setStatus("Cancelled.", "warn");
-        startBtn.disabled = false;
-        startBtn.textContent = "Start Try-On";
-        return;
-      }
-
-      try {
-        $("#result").style.display = "none";
-        $("#result").src = "";
+    // --- Button click ---
+    $("#startBtn").onclick=async()=>{
+      try{
         setStatus("Starting…");
-        startBtn.disabled = true;
-        startBtn.textContent = "Working…";
-
-        const { jobId } = await startTryOn();
+        const { jobId } = await startTryOn(selectedSelfie,[...selectedGarments]);
         await poll(jobId);
-      } catch (e) {
-        console.error(e);
-        setStatus(e.message || "Something went wrong", "err");
-        haptic("error");
-      } finally {
-        // restore button if not actively polling or after poll finishes/fails
-        if (!pollingAbort) {
-          startBtn.disabled = false;
-          startBtn.textContent = "Start Try-On";
-        } else {
-          // If still polling, switch to Cancel affordance
-          startBtn.disabled = false;
-          startBtn.textContent = "Cancel";
-        }
-      }
+      }catch(e){ console.error(e); setStatus(e.message||"Something went wrong","err"); }
     };
 
-    // Clean up polling if user navigates away
-    window.addEventListener("beforeunload", () => {
-      if (pollingAbort) pollingAbort.abort();
+    // --- Initial load ---
+    document.addEventListener("DOMContentLoaded", async ()=>{
+      try{
+        const [selfies, garments] = await Promise.all([listSelfies(), listGarments()]);
+        renderSelfieGallery(selfies);
+        renderGarmentGallery(garments);
+      }catch(e){ console.error(e); setStatus("Failed to load galleries","err"); }
     });
   </script>
 </body>
