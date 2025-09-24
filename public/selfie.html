@@ -13,11 +13,12 @@
       #preview { margin-top: 16px; max-width: 100%; border-radius: 12px; display: block; }
       button, input { margin-top: 12px; width: 100%; padding: 12px; border-radius: 10px; }
       #gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
-      #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; }
+      #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; cursor: pointer; }
       .ok { color: #0a7b32; }
       .warn { color: #b06a00; }
       .err { color: #b00020; }
       .tile { position: relative; }
+      .tile.selected img { outline: 3px solid rgba(0,0,0,.3); }
       .del {
         position: absolute; top: 6px; right: 6px;
         border: none; border-radius: 999px; width: 28px; height: 28px;
@@ -27,7 +28,7 @@
       .del:active { transform: scale(.96); }
     </style>
 
-    <!-- MediaPipe: load model (module script) -->
+    <!-- MediaPipe Pose Model -->
     <script type="module">
       import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 
@@ -56,7 +57,6 @@
         throw lastErr ?? new Error("Pose Landmarker load failed");
       }
 
-      // expose a promise for the main script (non-module)
       window.__visionReady = (async () => {
         try { window.__pose = await createLandmarker(); }
         catch (e) { alert("Failed to fetch pose model."); throw e; }
@@ -73,87 +73,91 @@
     <img id="preview" alt="Preview will appear here" />
     <div id="gallery"></div>
 
-    <!-- MAIN APP SCRIPT (keep everything inside this single tag) -->
     <script>
-      // -------- Telegram + backend base --------
-      const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com"; // change if needed
+      // -------- Telegram + backend --------
+      const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
       const tg = window.Telegram?.WebApp || { initData: "" };
       tg?.ready?.();
 
-      // -------- UI helpers --------
-      const $ = (sel) => document.querySelector(sel);
+      // -------- Helpers --------
+      const $ = (s) => document.querySelector(s);
       const setStatus = (msg, cls = "") => { const el = $("#status"); el.className = cls; el.textContent = msg || ""; };
       const haptic = (type) => tg?.HapticFeedback?.notificationOccurred?.(type);
 
-      // -------- Backend calls --------
+      // -------- Backend --------
       async function requestPresign(file) {
         const initData = tg.initData || "";
         const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, filename: file.name, contentType: file.type })
         });
         if (!res.ok) throw new Error("Failed to presign");
-        return res.json(); // { uploadUrl, key }
+        return res.json();
       }
 
       async function finalize({ key, sizeBytes, contentType }) {
         const initData = tg.initData || "";
         const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, key, sizeBytes, contentType })
         });
         if (!res.ok) throw new Error("Failed to finalize");
-        return res.json(); // { previewUrl, gallery:[{key,url}] }
+        return res.json();
       }
 
       async function deleteSelfie(key) {
         const initData = tg.initData || "";
         const res = await fetch(`${BACKEND_BASE}/selfies/delete`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, key })
         });
         if (!res.ok) throw new Error("Failed to delete");
-        return res.json(); // { ok: true }
+        return res.json();
       }
 
       async function loadGallery(limit = 24) {
         const initData = tg.initData || "";
         const res = await fetch(`${BACKEND_BASE}/selfies/list`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, limit })
         });
         if (!res.ok) throw new Error("Failed to load gallery");
-        const items = await res.json(); // [{key, url}]
+        const items = await res.json();
         renderGallery(items);
+
+        // default to first image if preview empty
+        const preview = $("#preview");
+        if (!preview.src && items.length) {
+          preview.src = items[0].url;
+          document.querySelector("#gallery .tile")?.classList.add("selected");
+        }
       }
 
+      // -------- Gallery --------
       function renderGallery(items) {
-        const wrap = document.getElementById("gallery");
+        const wrap = $("#gallery");
         wrap.innerHTML = "";
         items.forEach(it => {
           const cell = document.createElement("div");
           cell.className = "tile";
 
           const img = document.createElement("img");
-          img.src = it.url;
-          img.alt = it.key;
-          img.addEventListener("click", () => { document.getElementById("preview").src = it.url; });
+          img.src = it.url; img.alt = it.key;
+          img.addEventListener("click", () => {
+            $("#preview").src = it.url;
+            document.querySelectorAll("#gallery .tile.selected").forEach(n => n.classList.remove("selected"));
+            cell.classList.add("selected");
+          });
 
           const btn = document.createElement("button");
-          btn.className = "del";
-          btn.title = "Delete";
-          btn.textContent = "×";
+          btn.className = "del"; btn.title = "Delete"; btn.textContent = "×";
           btn.onclick = async (e) => {
             e.stopPropagation();
             if (!confirm("Delete this photo?")) return;
             btn.disabled = true;
             try {
               await deleteSelfie(it.key);
-              await loadGallery();                       // refresh from server
+              await loadGallery();
               haptic("success");
             } catch (err) {
               alert(err.message || "Delete failed");
@@ -168,103 +172,14 @@
         });
       }
 
-      // -------- Pose validation (knees → head) --------
-      const P = { NOSE:0, LEFT_EAR:7, RIGHT_EAR:8, LEFT_KNEE:25, RIGHT_KNEE:26 };
-      async function fileToImage(file) {
-        const url = URL.createObjectURL(file);
-        const img = new Image(); img.decoding = "async";
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-        URL.revokeObjectURL(url);
-        return img;
-      }
-      async function passesKneesToHeadRequirement(file) {
-        if (!window.__pose) await window.__visionReady;
-        const img = await fileToImage(file);
-        const result = window.__pose.detect(img);
-        if (!result.landmarks || !result.landmarks.length) return { ok:false, reason:"No person detected" };
-        const lm = result.landmarks[0];
-        const vis = (i) => (lm[i]?.visibility ?? 1);
-        const kneesVisible = vis(P.LEFT_KNEE) > 0.5 && vis(P.RIGHT_KNEE) > 0.5;
-        const headY = Math.min(lm[P.NOSE]?.y ?? 1, lm[P.LEFT_EAR]?.y ?? 1, lm[P.RIGHT_EAR]?.y ?? 1);
-        const headNearTop = headY < 0.20;
-        const kneesInFrame = (lm[P.LEFT_KNEE]?.y ?? 1) < 0.98 && (lm[P.RIGHT_KNEE]?.y ?? 1) < 0.98;
-        const minY = lm.reduce((m,p)=>Math.min(m, p.y ?? 1), 1);
-        const maxKneeY = Math.max(lm[P.LEFT_KNEE]?.y ?? 0, lm[P.RIGHT_KNEE]?.y ?? 0);
-        const coversSpan = (maxKneeY - minY) > 0.55;
-        const ok = kneesVisible && kneesInFrame && headNearTop && coversSpan;
-        if (!ok) {
-          const reasons = [];
-          if (!kneesVisible) reasons.push("both knees should be clearly visible");
-          if (!kneesInFrame) reasons.push("knees appear cropped out");
-          if (!headNearTop) reasons.push("head should be near the top of the frame");
-          if (!coversSpan) reasons.push("frame should include knees up to/above head");
-          return { ok:false, reason: reasons.join("; ") };
-        }
-        return { ok:true };
-      }
-
-      // -------- Compression (≤ 1.5 MB) --------
-      const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
-      async function fileToBitmap(file) {
-        if ('createImageBitmap' in window) {
-          const bitmap = await createImageBitmap(file);
-          return { img: bitmap, w: bitmap.width, h: bitmap.height, close: () => bitmap.close() };
-        }
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-        URL.revokeObjectURL(url);
-        return { img, w: img.naturalWidth, h: img.naturalHeight, close: () => {} };
-      }
-      function drawToCanvas(source, targetW, targetH) {
-        const c = document.createElement('canvas'); c.width = targetW; c.height = targetH;
-        const ctx = c.getContext('2d'); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(source, 0, 0, targetW, targetH); return c;
-      }
-      async function canvasToJpegUnder(canvas, maxBytes = MAX_BYTES) {
-        let lo = 0.5, hi = 0.95, best = null;
-        let blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', hi));
-        if (!blob) throw new Error("Canvas export failed");
-        if (blob.size <= maxBytes) return blob;
-        for (let i = 0; i < 7; i++) {
-          const mid = (lo + hi) / 2;
-          blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', mid));
-          if (!blob) throw new Error("Canvas export failed");
-          if (blob.size <= maxBytes) { best = blob; hi = mid; } else { lo = mid; }
-        }
-        return best || blob;
-      }
-      async function compressImageToLimit(file, maxBytes = MAX_BYTES, maxDim = MAX_DIM) {
-        const { img, w, h, close } = await fileToBitmap(file);
-        try {
-          let tw = w, th = h;
-          const scale = Math.max(w, h) > maxDim ? maxDim / Math.max(w, h) : 1;
-          if (scale < 1) { tw = Math.round(w * scale); th = Math.round(h * scale); }
-          let canvas = drawToCanvas(img, tw, th);
-          let jpeg = await canvasToJpegUnder(canvas, maxBytes);
-          let attempts = 0;
-          while (jpeg.size > maxBytes && attempts < 3 && Math.max(tw, th) > 512) {
-            tw = Math.round(tw * 0.85); th = Math.round(th * 0.85);
-            canvas = drawToCanvas(img, tw, th);
-            jpeg = await canvasToJpegUnder(canvas, maxBytes);
-            attempts++;
-          }
-          return new File([jpeg], replaceExt(file.name, '.jpg'), { type: 'image/jpeg' });
-        } finally { close(); }
-      }
-      function replaceExt(name, newExt) { const i = name.lastIndexOf('.'); return (i > 0 ? name.slice(0, i) : name) + newExt; }
-
       // -------- Upload flow --------
       document.getElementById("uploadBtn").onclick = async () => {
-        const original = document.getElementById("file").files[0];
+        const original = $("#file").files[0];
         if (!original) { alert("Pick a file first"); return; }
         try {
-          setStatus("Checking pose (knees → head)…");
-          const check = await passesKneesToHeadRequirement(original);
-          if (!check.ok) { setStatus("Photo rejected: " + check.reason, "err"); haptic("error"); return; }
-          setStatus("Compressing to ≤ 1.5 MB…");
+          setStatus("Compressing…");
           const file = await compressImageToLimit(original, 1_500_000, 2048);
-          setStatus("Requesting upload URL…");
+          setStatus("Requesting presign…");
           const { uploadUrl, key } = await requestPresign(file);
           setStatus("Uploading…");
           const putRes = await fetch(uploadUrl, {
@@ -274,17 +189,49 @@
           });
           if (!putRes.ok) throw new Error("Upload failed");
           setStatus("Finalizing…");
-          const { previewUrl, gallery, duplicate, message } = await finalize({ key, sizeBytes: file.size, contentType: file.type });
-          document.getElementById("preview").src = previewUrl;
-          await loadGallery(); // refresh after finalize
+          const { previewUrl, gallery, duplicate, message } = await finalize({
+            key, sizeBytes: file.size, contentType: file.type
+          });
+          $("#preview").src = previewUrl;
+          await loadGallery();
           setStatus(message, duplicate ? "warn" : "ok");
           tg.HapticFeedback?.notificationOccurred(duplicate ? "warning" : "success");
         } catch (e) {
-          console.error(e); setStatus(e.message || "Something went wrong", "err"); haptic("error"); alert(e.message || "Something went wrong");
+          console.error(e);
+          setStatus(e.message || "Something went wrong", "err");
+          haptic("error");
         }
       };
 
-      // -------- Initial gallery load --------
+      // -------- Compression --------
+      const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
+      async function fileToBitmap(file) {
+        if ('createImageBitmap' in window) {
+          const bitmap = await createImageBitmap(file);
+          return { img: bitmap, w: bitmap.width, h: bitmap.height, close: () => bitmap.close() };
+        }
+        const url = URL.createObjectURL(file);
+        const img = new Image(); await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+        URL.revokeObjectURL(url); return { img, w: img.naturalWidth, h: img.naturalHeight, close: () => {} };
+      }
+      function drawToCanvas(src, w, h) { const c = document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(src,0,0,w,h); return c; }
+      async function canvasToJpegUnder(c, max) {
+        let lo=0.5,hi=0.95,best=null,blob=await new Promise(r=>c.toBlob(r,'image/jpeg',hi));
+        if(blob.size<=max) return blob;
+        for(let i=0;i<7;i++){const mid=(lo+hi)/2;blob=await new Promise(r=>c.toBlob(r,'image/jpeg',mid));if(blob.size<=max){best=blob;hi=mid;}else lo=mid;}
+        return best||blob;
+      }
+      async function compressImageToLimit(file,maxBytes=MAX_BYTES,maxDim=MAX_DIM){
+        const {img,w,h,close}=await fileToBitmap(file);try{
+          let tw=w,th=h,scale=Math.max(w,h)>maxDim?maxDim/Math.max(w,h):1;if(scale<1){tw=Math.round(w*scale);th=Math.round(h*scale);}
+          let canvas=drawToCanvas(img,tw,th),jpeg=await canvasToJpegUnder(canvas,maxBytes),attempts=0;
+          while(jpeg.size>maxBytes&&attempts<3&&Math.max(tw,th)>512){tw=Math.round(tw*0.85);th=Math.round(th*0.85);canvas=drawToCanvas(img,tw,th);jpeg=await canvasToJpegUnder(canvas,maxBytes);attempts++;}
+          return new File([jpeg],replaceExt(file.name,'.jpg'),{type:'image/jpeg'});
+        }finally{close();}
+      }
+      function replaceExt(name,newExt){const i=name.lastIndexOf('.');return(i>0?name.slice(0,i):name)+newExt;}
+
+      // -------- Init --------
       document.addEventListener("DOMContentLoaded", () => { loadGallery().catch(console.error); });
     </script>
   </body>
