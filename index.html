@@ -132,7 +132,8 @@
         renderGallery(items);
       }
 
-function renderGallery(items) {
+<script>
+  function renderGallery(items) {
     const wrap = document.getElementById("gallery");
     wrap.innerHTML = "";
     items.forEach(it => {
@@ -155,15 +156,20 @@ function renderGallery(items) {
         const confirmDelete = confirm("Delete this photo?");
         if (!confirmDelete) return;
 
-        btn.disabled = true;
         try {
-          await deleteSelfie(it.key);
-          cell.remove(); // remove from DOM
+          const initData = tg.initData || "";
+          const res = await fetch(`${BACKEND_BASE}/selfies/delete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData, key: it.key })
+          });
+          if (!res.ok) throw new Error("Delete failed");
+
+          await loadGallery();  // 👈 refresh gallery here
           tg.HapticFeedback?.notificationOccurred("success");
-        } catch (err) {
-          alert(err.message || "Delete failed");
+        } catch (e) {
+          alert(e.message);
           tg.HapticFeedback?.notificationOccurred("error");
-          btn.disabled = false;
         }
       };
 
@@ -172,6 +178,7 @@ function renderGallery(items) {
       wrap.appendChild(cell);
     });
   }
+</script>
 
       document.addEventListener("DOMContentLoaded", () => {
         loadGallery().catch(err => console.error(err));
