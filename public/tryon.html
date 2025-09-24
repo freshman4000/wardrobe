@@ -8,39 +8,51 @@
   <style>
     :root{--pad:16px}
     body{font-family:system-ui,sans-serif; padding:var(--pad);}
+    a{color:#246bff; text-decoration:none}
     h3{margin:12px 0 4px}
     #status{font-size:12px; opacity:.75; min-height:1.2em; margin-top:6px}
     .gallery{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:8px}
     .tile{position:relative; cursor:pointer; border-radius:12px; overflow:hidden; outline:2px solid transparent; outline-offset:2px}
-    .tile img{width:100%; aspect-ratio:1/1; object-fit:cover}
+    .tile img{width:100%; aspect-ratio:1/1; object-fit:cover; display:block}
     .tile.selected{outline-color:#4a90e2}
     #result{max-width:100%; border-radius:12px; margin-top:12px; display:none}
     button{margin-top:12px; width:100%; padding:12px; border-radius:10px}
     .err{color:#b00020}
     .ok{color:#0a7b32}
+
+    /* Results section */
     .section { margin-top: 24px; }
     .section-title { font-weight: 600; margin-bottom: 8px; }
     .muted { color: #8b8b8b; }
     .error { color: #d33; }
-    .grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-    .grid .tile {
-    position: relative;
-    overflow: hidden;
-    border-radius: 10px;
-    background: #111;
-    aspect-ratio: 3/4;   /* most try-on images are portrait */
-  }
-  .grid .tile img {
-    width: 100%; height: 100%; object-fit: cover; display: block;
-  }
+
+    /* Results grid */
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+    .grid .tile{
+      position:relative; overflow:hidden; border-radius:10px;
+      background:#111; aspect-ratio:3/4;
+    }
+    .grid .tile img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+    /* Trash button overlay */
+    .tile .trash{
+      position:absolute; top:6px; right:6px;
+      background:rgba(0,0,0,.55); color:#fff; border:0;
+      border-radius:10px; width:28px; height:28px;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer; font-size:16px; line-height:1;
+    }
+    .tile .trash:active{ transform:scale(.96) }
+
+    /* Preview area */
+    #preview-wrap{ margin-top:16px; display:none; }
+    #preview{ width:100%; max-width:100%; border-radius:12px; display:block; background:#111; object-fit:contain; }
+    #preview-meta{ font-size:12px; opacity:.7; margin-top:6px }
   </style>
 </head>
 <body>
   <a href="/">← Back</a>
+
   <h3>Pick your selfie</h3>
   <div id="selfieGallery" class="gallery"></div>
 
@@ -51,24 +63,26 @@
   <div id="status"></div>
   <img id="result" alt="Result" />
 
-  <section class="section">
-  <h3 class="section-title">Your Try-On Results</h3>
-
-  <div id="tryon-empty" class="muted" style="display:none;">
-    No results yet. Run a try-on to see it here.
+  <!-- Preview of a clicked try-on result -->
+  <div id="preview-wrap">
+    <img id="preview" alt="Preview" />
+    <div id="preview-meta" class="muted"></div>
   </div>
 
-  <div id="tryon-grid" class="grid"></div>
-
-  <div id="tryon-error" class="error" style="display:none;"></div>
-</section>
+  <section class="section">
+    <h3 class="section-title">Your Try-On Results</h3>
+    <div id="tryon-empty" class="muted" style="display:none;">No results yet. Run a try-on to see it here.</div>
+    <div id="tryon-grid" class="grid"></div>
+    <div id="tryon-error" class="error" style="display:none;"></div>
+  </section>
 
   <script>
-    // --- Config / Telegram ---
+    // ===== Config / Telegram =====
     const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
     const tg = window.Telegram?.WebApp || { initData: "" };
     tg?.ready?.();
 
+    // ===== Small helpers =====
     const $ = s => document.querySelector(s);
     const setStatus = (m, cls="") => { const el=$("#status"); el.className=cls; el.textContent=m||""; };
     const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
@@ -76,7 +90,7 @@
     let selectedSelfie = null;
     let selectedGarments = new Set();
 
-    // --- Backend calls ---
+    // ===== Backend calls (selfies/garments/tryon) =====
     async function listSelfies(limit=12){
       const res=await fetch(`${BACKEND_BASE}/selfies/list`,{
         method:"POST", headers:{ "Content-Type":"application/json" },
@@ -107,7 +121,7 @@
       return res.json(); // { status, imageUrl? }
     }
 
-    // --- Gallery renderers ---
+    // ===== Render selfie/garment pickers =====
     function renderSelfieGallery(items){
       const wrap=$("#selfieGallery"); wrap.innerHTML="";
       items.forEach(it=>{
@@ -135,12 +149,11 @@
         tile.appendChild(img); wrap.appendChild(tile);
       });
     }
-
     function updateButton(){
       $("#startBtn").disabled = !(selectedSelfie && selectedGarments.size>0);
     }
 
-    // --- Polling ---
+    // ===== Start & Poll =====
     async function poll(jobId){
       setStatus("Working…");
       for(let i=0;i<40;i++){
@@ -154,8 +167,6 @@
       }
       setStatus("Timed out","err");
     }
-
-    // --- Button click ---
     $("#startBtn").onclick=async()=>{
       try{
         setStatus("Starting…");
@@ -164,97 +175,144 @@
       }catch(e){ console.error(e); setStatus(e.message||"Something went wrong","err"); }
     };
 
-    // --- Initial load ---
+    // ===== Try-on Gallery (list / preview / delete) =====
+    async function fetchTryOnGallery() {
+      const initData = window.Telegram?.WebApp?.initData || window.initData || '';
+      const body = { initData, limit: 30 };
+
+      // Prefer POST
+      const postUrl = `${BACKEND_BASE}/tryon/gallery`;
+      let res = await fetch(postUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
+        body: JSON.stringify(body),
+      });
+
+      // Fallback to GET if server prefers it
+      if (!res.ok && res.status === 405) {
+        const params = new URLSearchParams({ initData, limit: '30' });
+        res = await fetch(`${BACKEND_BASE}/tryon/gallery?` + params.toString(), { credentials: 'omit' });
+      }
+      if (!res.ok) {
+        const txt = await res.text().catch(()=>'');
+        throw new Error(`Gallery ${res.status} ${res.statusText}${txt ? ` — ${txt}` : ''}`);
+      }
+      return await res.json(); // [{ id, createdAt, imageUrl }]
+    }
+
+    async function deleteTryOnResult(id) {
+      const initData = window.Telegram?.WebApp?.initData || '';
+      // Prefer POST /tryon/delete
+      let res = await fetch(`${BACKEND_BASE}/tryon/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, id }),
+      });
+      // Fallback to DELETE /tryon/{id}
+      if (!res.ok && res.status === 404) {
+        res = await fetch(`${BACKEND_BASE}/tryon/` + encodeURIComponent(id) + `?initData=${encodeURIComponent(initData)}`, { method: 'DELETE' });
+      }
+      if (!res.ok) throw new Error('Delete failed');
+    }
+
+    function selectPreview(url, createdAt) {
+      const wrap = $("#preview-wrap");
+      const img  = $("#preview");
+      const meta = $("#preview-meta");
+      img.src = url;
+      meta.textContent = createdAt ? new Date(createdAt).toLocaleString() : '';
+      wrap.style.display = 'block';
+      tg?.HapticFeedback?.selectionChanged?.();
+    }
+
+    function renderTryOnGallery(items) {
+      const grid  = $("#tryon-grid");
+      const empty = $("#tryon-empty");
+      const err   = $("#tryon-error");
+
+      err.style.display = 'none';
+      grid.innerHTML = '';
+
+      if (!items || items.length === 0) {
+        empty.style.display = 'block';
+        $("#preview-wrap").style.display = 'none';
+        return;
+      }
+      empty.style.display = 'none';
+
+      // Preselect latest as preview if none
+      if (!$("#preview").src && items[0]?.imageUrl) {
+        selectPreview(items[0].imageUrl, items[0].createdAt);
+      }
+
+      for (const it of items) {
+        const { id, imageUrl, createdAt } = it;
+        if (!imageUrl) continue;
+
+        const div = document.createElement('div');
+        div.className = 'tile';
+
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.src = imageUrl;
+        img.alt = id;
+
+        // Click -> preview
+        img.addEventListener('click', () => selectPreview(imageUrl, createdAt));
+
+        // Trash
+        const trash = document.createElement('button');
+        trash.className = 'trash';
+        trash.type = 'button';
+        trash.title = 'Delete';
+        trash.innerHTML = '🗑️';
+        trash.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          const ok = confirm('Delete this result?');
+          if (!ok) return;
+          try {
+            await deleteTryOnResult(id);
+            // If preview shows this one, hide it
+            if ($("#preview").src === imageUrl) $("#preview-wrap").style.display = 'none';
+            await loadTryOnGallery();
+            haptic?.('success');
+          } catch (e) {
+            console.error(e);
+            alert('Failed to delete');
+            haptic?.('error');
+          }
+        });
+
+        div.appendChild(img);
+        div.appendChild(trash);
+        grid.appendChild(div);
+      }
+    }
+
+    async function loadTryOnGallery() {
+      const err = $("#tryon-error");
+      try {
+        const items = await fetchTryOnGallery();
+        renderTryOnGallery(items);
+      } catch (e) {
+        console.error(e);
+        err.textContent = e.message || 'Error loading gallery';
+        err.style.display = 'block';
+      }
+    }
+
+    // ===== Initial load =====
     document.addEventListener("DOMContentLoaded", async ()=>{
       try{
         const [selfies, garments] = await Promise.all([listSelfies(), listGarments()]);
         renderSelfieGallery(selfies);
         renderGarmentGallery(garments);
       }catch(e){ console.error(e); setStatus("Failed to load galleries","err"); }
+      loadTryOnGallery();
+      setInterval(loadTryOnGallery, 30000);
     });
   </script>
- <script>
-  async function fetchTryOnGallery() {
-    const initData = window.Telegram?.WebApp?.initData || window.initData || '';
-    const body = { initData, limit: 30 };
-
-    // Try POST first (matches your selfies/garments API style)
-    const postUrl = `${BACKEND_BASE}/tryon/gallery`;
-    let res = await fetch(postUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'omit',
-      body: JSON.stringify(body),
-    });
-
-    // If POST isn’t supported on the server, fallback to GET with query string
-    if (!res.ok && res.status === 405) {
-      const params = new URLSearchParams({ initData, limit: '30' });
-      const getUrl = `${BACKEND_BASE}/tryon/gallery?` + params.toString();
-      res = await fetch(getUrl, { credentials: 'omit' });
-    }
-
-    if (!res.ok) {
-      // Surface the real status + text to debug quickly
-      const txt = await res.text().catch(() => '');
-      throw new Error(`Gallery ${res.status} ${res.statusText}${txt ? ` — ${txt}` : ''}`);
-    }
-    return await res.json(); // [{ id, createdAt, imageUrl }]
-  }
-
-  function renderTryOnGallery(items) {
-    const grid = document.getElementById('tryon-grid');
-    const empty = document.getElementById('tryon-empty');
-    const err  = document.getElementById('tryon-error');
-
-    err.style.display = 'none';
-    grid.innerHTML = '';
-
-    if (!items || items.length === 0) {
-      empty.style.display = 'block';
-      return;
-    }
-    empty.style.display = 'none';
-
-    for (const it of items) {
-      const url = it.imageUrl;
-      if (!url) continue;
-
-      const div = document.createElement('div');
-      div.className = 'tile';
-
-      const img = document.createElement('img');
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      img.src = url;
-
-      img.addEventListener('click', () => {
-        if (window.Telegram?.WebApp?.openLink) window.Telegram.WebApp.openLink(url);
-        else window.open(url, '_blank', 'noopener,noreferrer');
-      });
-
-      div.appendChild(img);
-      grid.appendChild(div);
-    }
-  }
-
-  async function loadTryOnGallery() {
-    const err = document.getElementById('tryon-error');
-    try {
-      const items = await fetchTryOnGallery();
-      console.debug('tryon items', items); // helpful while debugging
-      renderTryOnGallery(items);
-    } catch (e) {
-      console.error(e);
-      err.textContent = e.message || 'Error loading gallery';
-      err.style.display = 'block';
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    loadTryOnGallery();
-    setInterval(loadTryOnGallery, 30000);
-  });
-</script>
 </body>
 </html>
