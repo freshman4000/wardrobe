@@ -17,6 +17,14 @@
       .ok { color: #0a7b32; }
       .warn { color: #b06a00; }
       .err { color: #b00020; }
+      .tile { position: relative; }
+  .del {
+    position: absolute; top: 6px; right: 6px;
+    border: none; border-radius: 999px; width: 28px; height: 28px;
+    font-weight: 700; background: rgba(0,0,0,.55); color: #fff;
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .del:active { transform: scale(.96); }
     </style>
 
 <!-- replace your existing module loader with this -->
@@ -124,17 +132,46 @@
         renderGallery(items);
       }
 
-      function renderGallery(items) {
-        const wrap = $("#gallery");
-        wrap.innerHTML = "";
-        items.forEach(it => {
-          const img = document.createElement("img");
-          img.src = it.url;
-          img.alt = it.key;
-          img.addEventListener("click", () => { $("#preview").src = it.url; });
-          wrap.appendChild(img);
-        });
-      }
+function renderGallery(items) {
+    const wrap = document.getElementById("gallery");
+    wrap.innerHTML = "";
+    items.forEach(it => {
+      const cell = document.createElement("div");
+      cell.className = "tile";
+
+      const img = document.createElement("img");
+      img.src = it.url;
+      img.alt = it.key;
+      img.addEventListener("click", () => {
+        document.getElementById("preview").src = it.url;
+      });
+
+      const btn = document.createElement("button");
+      btn.className = "del";
+      btn.title = "Delete";
+      btn.textContent = "×";
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const confirmDelete = confirm("Delete this photo?");
+        if (!confirmDelete) return;
+
+        btn.disabled = true;
+        try {
+          await deleteSelfie(it.key);
+          cell.remove(); // remove from DOM
+          tg.HapticFeedback?.notificationOccurred("success");
+        } catch (err) {
+          alert(err.message || "Delete failed");
+          tg.HapticFeedback?.notificationOccurred("error");
+          btn.disabled = false;
+        }
+      };
+
+      cell.appendChild(img);
+      cell.appendChild(btn);
+      wrap.appendChild(cell);
+    });
+  }
 
       document.addEventListener("DOMContentLoaded", () => {
         loadGallery().catch(err => console.error(err));
@@ -308,5 +345,17 @@
         }
       };
     </script>
+    <script>
+  async function deleteSelfie(key) {
+    const initData = tg.initData || "";
+    const res = await fetch(`${BACKEND_BASE}/selfies/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, key })
+    });
+    if (!res.ok) throw new Error("Failed to delete");
+    return res.json(); // { ok: true }
+  }
+</script>
   </body>
 </html>
