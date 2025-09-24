@@ -47,6 +47,23 @@
     return res.json(); // { previewUrl, gallery:[{key,url}] }
   }
 
+  async function loadGallery(limit = 24) {
+    const initData = tg.initData || "";
+    const res = await fetch(`${BACKEND_BASE}/selfies/list`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, limit })
+    });
+    if (!res.ok) throw new Error("Failed to load gallery");
+    const items = await res.json(); // [{key, url}]
+    renderGallery(items);
+  }
+
+   // call on startup
+  document.addEventListener("DOMContentLoaded", () => {
+    loadGallery().catch(err => console.error(err));
+  });
+
   function renderGallery(items) {
     const wrap = document.getElementById("gallery");
     wrap.innerHTML = "";
