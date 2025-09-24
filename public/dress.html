@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wardrobe · Dress Up</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{--pad:16px}
+    body{font-family:system-ui,sans-serif; padding:var(--pad);}
+    #status{font-size:12px; opacity:.75; min-height:1.2em; margin-top:6px}
+    img#result{max-width:100%; border-radius:12px; margin-top:12px; display:none}
+    button{margin-top:12px; width:100%; padding:12px; border-radius:10px}
+  </style>
+</head>
+<body>
+  <a href="/">← Back</a>
+  <h3>Dress up</h3>
+  <button id="startBtn">Start Try-On</button>
+  <div id="status"></div>
+  <img id="result" alt="Result" />
+
+  <script>
+    const BACKEND_BASE = "<YOUR_BACKEND_BASE>";
+    const tg = window.Telegram?.WebApp || { initData: "" }; tg?.ready?.();
+    const $ = s => document.querySelector(s);
+    const setStatus = (m, cls="") => { const el=$("#status"); el.className=cls; el.textContent=m||""; };
+
+    async function startTryOn(){
+      const initData=tg.initData||"";
+      const res=await fetch(`${BACKEND_BASE}/tryon/start`,{
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ initData })
+      });
+      if(!res.ok) throw new Error("Failed to start");
+      return res.json(); // { jobId }
+    }
+
+    async function checkTryOn(jobId){
+      const res=await fetch(`${BACKEND_BASE}/tryon/status?jobId=`+encodeURIComponent(jobId));
+      if(!res.ok) throw new Error("Status failed");
+      return res.json(); // { status: "queued|running|succeeded|failed", imageUrl? }
+    }
+
+    async function poll(jobId){
+      setStatus("Working…");
+      for(let i=0;i<40;i++){
+        const s=await checkTryOn(jobId);
+        if(s.status==="succeeded" && s.imageUrl){
+          $("#result").src=s.imageUrl; $("#result").style.display="block";
+          setStatus("Done ✔"); return;
+        }
+        if(s.status==="failed"){ setStatus("Try-on failed", "err"); return; }
+        await new Promise(r=>setTimeout(r, 2000));
+      }
+      setStatus("Timed out. Please try again.", "err");
+    }
+
+    document.getElementById("startBtn").onclick = async ()=>{
+      try{
+        setStatus("Starting…");
+        const { jobId } = await startTryOn();
+        await poll(jobId);
+      }catch(e){ console.error(e); setStatus(e.message||"Something went wrong", "err"); }
+    };
+  </script>
+</body>
+</html>
