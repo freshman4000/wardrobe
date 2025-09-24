@@ -19,27 +19,52 @@
       .err { color: #b00020; }
     </style>
 
-    <!-- MediaPipe Pose Landmarker (WASM) -->
-    <script type="module">
-      import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+<!-- replace your existing module loader with this -->
+<script type="module">
+  import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 
-      // Load once and expose to window
-      window.__visionReady = (async () => {
-        const fileset = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-        );
-        window.__pose = await PoseLandmarker.createFromOptions(fileset, {
-          baseOptions: {
-            modelAssetPath: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm/pose_landmarker_full.task"
-          },
+  const MODEL_CANDIDATES = [
+    // Official MediaPipe model hosting (recommended)
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+    // Fallback to a smaller model if full is blocked/slow
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+  ];
+
+  async function createLandmarker() {
+    const fileset = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+    );
+
+    let lastErr;
+    for (const url of MODEL_CANDIDATES) {
+      try {
+        const lm = await PoseLandmarker.createFromOptions(fileset, {
+          baseOptions: { modelAssetPath: url },
           runningMode: "IMAGE",
           numPoses: 1,
           minPoseDetectionConfidence: 0.5,
           minPosePresenceConfidence: 0.5,
           minTrackingConfidence: 0.5
         });
-      })();
-    </script>
+        return lm;
+      } catch (e) {
+        lastErr = e;
+        console.warn("Pose model load failed, trying next:", url, e);
+      }
+    }
+    throw lastErr ?? new Error("Pose Landmarker load failed");
+  }
+
+  // Load once, expose globally
+  window.__visionReady = (async () => {
+    try {
+      window.__pose = await createLandmarker();
+    } catch (e) {
+      alert("Failed to fetch pose model. Please check your network and try again.");
+      throw e;
+    }
+  })();
+</script>
   </head>
 
   <body>
