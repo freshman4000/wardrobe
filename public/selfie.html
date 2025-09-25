@@ -25,9 +25,6 @@
       .block { display: none; }
       .block.active { display: block; }
 
-      /* Inputs / buttons */
-      button, input[type="file"] { margin-top: 12px; width: 100%; padding: 12px; border-radius: 10px; }
-
       /* Camera area */
       #cameraBox {
         margin-top: 10px; border-radius: 12px; overflow: hidden;
@@ -62,12 +59,11 @@
       .fab[disabled], .fab-secondary[disabled] { opacity: .5; cursor: default; }
       .fab:active, .fab-secondary:active { transform: scale(.98); }
 
-      /* Small text labels under buttons on the sides */
       .control-stack { display: grid; gap: 4px; justify-items: center; color: #fff; font-size: 11px; }
       .control-stack .label { text-shadow: 0 1px 2px rgba(0,0,0,.6); }
 
-      /* Gallery */
-      #preview, #cam-preview { margin-top: 12px; max-width: 100%; border-radius: 12px; display: block; }
+      /* Gallery block */
+      #preview { margin-top: 12px; max-width: 100%; border-radius: 12px; display: block; }
       #gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
       #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; cursor: pointer; }
       .tile { position: relative; }
@@ -80,7 +76,6 @@
       }
       .del:active { transform: scale(.96); }
 
-      /* Status colors */
       .ok { color: #0a7b32; }
       .warn { color: #b06a00; }
       .err { color: #b00020; }
@@ -93,14 +88,8 @@
 
     <!-- Mode switcher -->
     <div class="mode-switch">
-      <button id="cameraModeBtn" class="mode-btn active" type="button" title="Use Camera">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-2h6l2 2h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        Camera
-      </button>
-      <button id="galleryModeBtn" class="mode-btn" type="button" title="Pick from Gallery">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        Gallery
-      </button>
+      <button id="cameraModeBtn" class="mode-btn active" type="button">Camera</button>
+      <button id="galleryModeBtn" class="mode-btn" type="button">Gallery</button>
     </div>
 
     <!-- Camera Block -->
@@ -110,46 +99,26 @@
         <img id="captured" alt="Captured preview" />
         <div id="camOverlay" class="cam-overlay">Camera paused</div>
 
-        <!-- Overlay controls -->
         <div class="cam-controls">
-          <!-- Left: Flip -->
           <div class="left">
             <div class="control-stack">
-              <button id="flipBtn" class="fab-secondary" type="button" title="Flip Camera" aria-label="Flip Camera">
-                <!-- flip icon -->
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff"><path d="M3 7a9 9 0 0 1 14-3"/><polyline points="1 7 3 7 3 5"/><path d="M21 17a9 9 0 0 1-14 3"/><polyline points="23 17 21 17 21 19"/></svg>
-              </button>
+              <button id="flipBtn" class="fab-secondary" type="button">⇆</button>
               <div class="label">Flip</div>
             </div>
           </div>
-
-          <!-- Center: Capture (or Upload when captured) -->
           <div class="center">
-            <button id="captureBtn" class="fab" type="button" title="Capture" aria-label="Capture">
-              <!-- shutter icon -->
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><circle cx="12" cy="12" r="8"/></svg>
-            </button>
-            <button id="uploadCamBtn" class="fab" type="button" title="Upload" aria-label="Upload" style="display:none;">
-              <!-- upload icon -->
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
-            </button>
+            <button id="captureBtn" class="fab" type="button">●</button>
+            <button id="uploadCamBtn" class="fab" type="button" style="display:none;">↑</button>
           </div>
-
-          <!-- Right: Retake -->
           <div class="right">
             <div class="control-stack">
-              <button id="retakeBtn" class="fab-secondary" type="button" title="Retake" aria-label="Retake" disabled>
-                <!-- retake icon -->
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-              </button>
+              <button id="retakeBtn" class="fab-secondary" type="button" disabled>⟳</button>
               <div class="label">Retake</div>
             </div>
           </div>
         </div>
       </div>
-
       <div id="status"></div>
-      <img id="cam-preview" alt="Preview will appear here" />
     </div>
 
     <!-- Gallery Block -->
@@ -158,10 +127,9 @@
       <button id="uploadBtn" type="button">Upload</button>
       <div id="status2"></div>
       <img id="preview" alt="Preview will appear here" />
+      <h3>Your Selfies</h3>
+      <div id="gallery"></div>
     </div>
-
-    <h3>Your Selfies</h3>
-    <div id="gallery"></div>
 
     <script>
       // -------- Telegram + backend --------
