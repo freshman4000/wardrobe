@@ -9,7 +9,7 @@
       :root { --pad: 16px; }
       body { font-family: system-ui, sans-serif; padding: var(--pad); }
       h3 { margin: 0 0 8px; }
-      #status, #status2 { font-size: 12px; opacity: .75; margin-top: 6px; min-height: 1.2em; }
+      #status, #status2 { font-size: 12px; opacity: .85; margin-top: 6px; min-height: 1.2em; }
 
       .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
       .mode-btn { display: grid; place-items: center; gap: 6px; padding: 12px; border-radius: 12px; border: 2px solid #ddd; background: #fff; cursor: pointer; font-weight: 600; }
@@ -46,7 +46,7 @@
       .err { color: #b00020; }
     </style>
 
-    <!-- MediaPipe Pose (non-blocking); loads once and is reused -->
+    <!-- MediaPipe Pose (strict gate) -->
     <script type="module">
       import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 
@@ -72,13 +72,12 @@
         throw lastErr ?? new Error("Pose Landmarker load failed");
       }
 
-      // Expose a promise and helpers on window for the main script
       window.__poseReady = (async () => {
         try {
           window.__poseLm = await createLandmarker();
           return true;
         } catch (e) {
-          console.warn("Pose load failed — continuing without validation.", e);
+          console.warn("Pose load failed — uploads will be blocked until available.", e);
           window.__poseLm = null;
           return false;
         }
@@ -87,7 +86,6 @@
       window.__detectPoseFromBlob = async function(blob) {
         if (!window.__poseLm) return null;
         try {
-          // Prefer createImageBitmap for speed
           let bitmap;
           if ('createImageBitmap' in window) {
             bitmap = await createImageBitmap(blob);
@@ -150,7 +148,7 @@
     <!-- Gallery Block -->
     <div id="galleryBlock" class="block">
       <input id="file" type="file" accept="image/*" />
-      <button id="uploadBtn" type="button">Upload</button>
+      <button id="uploadBtn" type="button" disabled>Upload</button>
       <div id="status2"></div>
       <img id="preview" alt="Preview will appear here" />
       <h3>Your Selfies</h3>
@@ -170,7 +168,9 @@
       };
       const haptic = (type) => tg?.HapticFeedback?.notificationOccurred?.(type);
 
-      // Unique name to avoid "duplicate" by filename
+      // Toggle this if you ever want to allow uploads when model is unavailable
+      const STRICT_POSE_REQUIRED = true;
+
       function uniqueName(ext=".jpg") {
         const rand = Math.random().toString(36).slice(2, 8);
         return `camera_${Date.now()}_${rand}${ext}`;
@@ -312,28 +312,28 @@
         } finally { close(); }
       }
 
-      // ------- MediaPipe validation (non-blocking) -------
-      async function maybeValidatePose(fileOrBlob, whichStatus) {
+      // ------- Pose validation (STRICT) -------
+      async function validatePoseStrict(fileOrBlob, whichStatus) {
         try {
-          await (window.__poseReady || Promise.resolve(false));
-          if (!window.__poseLm || !window.__detectPoseFromBlob) return; // model not available -> skip
-          const res = await window.__detectPoseFromBlob(fileOrBlob);
-          const hasPose = !!(res && res.landmarks && res.landmarks.length > 0);
-          if (!hasPose) {
-            setStatus("Heads-up: no full-body pose detected. Try a clearer, well-lit selfie.", "warn", whichStatus);
+          const ready = await (window.__poseReady || Promise.resolve(false));
+          if (!ready || !window.__poseLm || !window.__detectPoseFromBlob) {
+            setStatus("Pose model not available. Please try again in a moment.", "err", whichStatus);
+            return false;
           }
+          const res = await window.__detectPoseFromBlob(fileOrBlob);
+          const ok = !!(res && res.landmarks && res.landmarks.length > 0);
+          if (!ok) setStatus("No person detected. Please retake or choose a clearer selfie.", "warn", whichStatus);
+          return ok;
         } catch (e) {
-          // Never block uploads on model errors
-          console.debug("Pose validation skipped:", e?.message || e);
+          console.debug("Pose validation error", e);
+          setStatus("Pose check failed. Please try again.", "err", whichStatus);
+          return false;
         }
       }
 
       // ------- Upload pipeline (shared) -------
       async function uploadFileThroughPipeline(file, whichStatus=1) {
         try {
-          // Optional validation (non-blocking)
-          await maybeValidatePose(file, whichStatus);
-
           setStatus("Requesting presign…", "", whichStatus);
           const { uploadUrl, key } = await requestPresign(file);
 
@@ -350,13 +350,10 @@
             key, sizeBytes: file.size, contentType: file.type
           });
 
-          // Show success frame briefly in camera mode, then return to live
+          // Camera: show briefly then return to live
           if ($("#cameraBlock").classList.contains("active")) {
             const cap = $("#captured");
-            if (cap) {
-              cap.src = previewUrl;
-              cap.style.display = "block";
-            }
+            if (cap) { cap.src = previewUrl; cap.style.display = "block"; }
             setTimeout(() => resetCameraUI(), 600);
           } else {
             const gPrev = $("#preview");
@@ -385,8 +382,26 @@
           setStatus("Compressing…", "", 2);
           const compressed = await compressImageToLimit(original, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 2);
+          // After upload, keep button disabled until a new valid file is picked
+          $("#uploadBtn").disabled = true;
         } catch {}
       };
+
+      // Enable/disable upload based on pose when user selects a gallery file
+      $("#file").addEventListener("change", async () => {
+        $("#uploadBtn").disabled = true;
+        setStatus("", "", 2);
+        const f = $("#file").files[0];
+        if (!f) return;
+        const ok = STRICT_POSE_REQUIRED ? await validatePoseStrict(f, 2) : true;
+        if (ok) {
+          setStatus("Looks good! You can upload.", "ok", 2);
+          $("#uploadBtn").disabled = false;
+          // Show preview
+          const url = URL.createObjectURL(f);
+          $("#preview").src = url;
+        }
+      });
 
       // ------- Camera flow -------
       const video = $("#camera");
@@ -409,6 +424,7 @@
         $("#retakeBtn").disabled  = true;
         $("#uploadCamBtn").style.display = "none";
         capturedBlob = null;
+        setStatus("", "", 1);
       }
 
       async function startCamera() {
@@ -433,6 +449,7 @@
       }
       $("#flipBtn").onclick = async () => { facing = (facing === "user" ? {exact:"environment"} : "user"); await startCamera(); };
 
+      // Capture -> validate -> only then show Upload
       $("#captureBtn").onclick = async () => {
         if (!video.videoWidth) return;
         const w = video.videoWidth, h = video.videoHeight;
@@ -440,15 +457,21 @@
         c.getContext("2d").drawImage(video, 0, 0, w, h);
         capturedBlob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.95));
 
-        // Try pose check quickly (non-blocking) on the raw capture too
-        maybeValidatePose(capturedBlob, 1).catch(()=>{});
-
         capturedImg.src = URL.createObjectURL(capturedBlob);
         capturedImg.style.display = "block";
         video.style.display = "none";
         $("#retakeBtn").disabled = false;
-        $("#uploadCamBtn").style.display = "grid";
         $("#captureBtn").disabled = true;
+
+        // STRICT: validate pose now
+        setStatus("Checking selfie…", "", 1);
+        const ok = STRICT_POSE_REQUIRED ? await validatePoseStrict(capturedBlob, 1) : true;
+        if (ok) {
+          setStatus("Looks good! You can upload.", "ok", 1);
+          $("#uploadCamBtn").style.display = "grid";
+        } else {
+          $("#uploadCamBtn").style.display = "none";
+        }
       };
 
       $("#retakeBtn").onclick = () => {
@@ -462,6 +485,8 @@
           const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type: "image/jpeg" });
           const compressed = await compressImageToLimit(rawFile, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 1);
+          // After upload, return to active camera
+          await startCamera();
         } catch {}
       };
 
@@ -486,6 +511,7 @@
         camBlock.classList.remove("active");
         setStatus("", "", 1); // clear camera status
         stopCamera();
+        $("#uploadBtn").disabled = true; // locked until a valid file passes pose check
         await loadGallery().catch(console.error);
       }
 
