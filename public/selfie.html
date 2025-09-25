@@ -45,6 +45,68 @@
       .warn { color: #b06a00; }
       .err { color: #b00020; }
     </style>
+
+    <!-- MediaPipe Pose (non-blocking); loads once and is reused -->
+    <script type="module">
+      import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+      const MODEL_CANDIDATES = [
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+      ];
+
+      async function createLandmarker() {
+        const fileset = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+        );
+        let lastErr;
+        for (const url of MODEL_CANDIDATES) {
+          try {
+            return await PoseLandmarker.createFromOptions(fileset, {
+              baseOptions: { modelAssetPath: url },
+              runningMode: "IMAGE",
+              numPoses: 1
+            });
+          } catch (e) { lastErr = e; console.warn("Pose model failed:", url, e); }
+        }
+        throw lastErr ?? new Error("Pose Landmarker load failed");
+      }
+
+      // Expose a promise and helpers on window for the main script
+      window.__poseReady = (async () => {
+        try {
+          window.__poseLm = await createLandmarker();
+          return true;
+        } catch (e) {
+          console.warn("Pose load failed — continuing without validation.", e);
+          window.__poseLm = null;
+          return false;
+        }
+      })();
+
+      window.__detectPoseFromBlob = async function(blob) {
+        if (!window.__poseLm) return null;
+        try {
+          // Prefer createImageBitmap for speed
+          let bitmap;
+          if ('createImageBitmap' in window) {
+            bitmap = await createImageBitmap(blob);
+          } else {
+            const img = document.createElement('img');
+            const url = URL.createObjectURL(blob);
+            await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+            bitmap = img;
+            URL.revokeObjectURL(url);
+          }
+          const res = await window.__poseLm.detect(bitmap);
+          if ('close' in bitmap) try { bitmap.close(); } catch {}
+          return res;
+        } catch (e) {
+          console.warn("Pose detect failed", e);
+          return null;
+        }
+      }
+    </script>
   </head>
 
   <body>
@@ -127,12 +189,12 @@
 
       async function finalize({ key, sizeBytes, contentType }) {
         const initData = tg.initData || "";
-        theRes = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
+        const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, key, sizeBytes, contentType })
         });
-        if (!theRes.ok) throw new Error("Failed to finalize");
-        return theRes.json();
+        if (!res.ok) throw new Error("Failed to finalize");
+        return res.json();
       }
 
       async function deleteSelfie(key) {
@@ -250,9 +312,28 @@
         } finally { close(); }
       }
 
+      // ------- MediaPipe validation (non-blocking) -------
+      async function maybeValidatePose(fileOrBlob, whichStatus) {
+        try {
+          await (window.__poseReady || Promise.resolve(false));
+          if (!window.__poseLm || !window.__detectPoseFromBlob) return; // model not available -> skip
+          const res = await window.__detectPoseFromBlob(fileOrBlob);
+          const hasPose = !!(res && res.landmarks && res.landmarks.length > 0);
+          if (!hasPose) {
+            setStatus("Heads-up: no full-body pose detected. Try a clearer, well-lit selfie.", "warn", whichStatus);
+          }
+        } catch (e) {
+          // Never block uploads on model errors
+          console.debug("Pose validation skipped:", e?.message || e);
+        }
+      }
+
       // ------- Upload pipeline (shared) -------
       async function uploadFileThroughPipeline(file, whichStatus=1) {
         try {
+          // Optional validation (non-blocking)
+          await maybeValidatePose(file, whichStatus);
+
           setStatus("Requesting presign…", "", whichStatus);
           const { uploadUrl, key } = await requestPresign(file);
 
@@ -276,7 +357,6 @@
               cap.src = previewUrl;
               cap.style.display = "block";
             }
-            // brief success flash, then reset to live camera
             setTimeout(() => resetCameraUI(), 600);
           } else {
             const gPrev = $("#preview");
@@ -316,7 +396,6 @@
       let facing = "user";
       let capturedBlob = null;
 
-      // Reset UI back to live camera
       function resetCameraUI() {
         if (capturedImg) {
           capturedImg.style.display = "none";
@@ -339,7 +418,7 @@
           video.srcObject = stream;
           await video.play().catch(()=>{});
           overlay.style.display = "none";
-          resetCameraUI(); // ensure fresh state when starting
+          resetCameraUI();
         } catch (e) {
           console.error(e);
           overlay.textContent = "Camera unavailable";
@@ -360,6 +439,9 @@
         const c = document.createElement("canvas"); c.width = w; c.height = h;
         c.getContext("2d").drawImage(video, 0, 0, w, h);
         capturedBlob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.95));
+
+        // Try pose check quickly (non-blocking) on the raw capture too
+        maybeValidatePose(capturedBlob, 1).catch(()=>{});
 
         capturedImg.src = URL.createObjectURL(capturedBlob);
         capturedImg.style.display = "block";
