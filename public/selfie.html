@@ -89,6 +89,8 @@
         <button id="retakeBtn" type="button" disabled>Retake</button>
       </div>
       <button id="uploadCamBtn" type="button" disabled>Upload Photo</button>
+      <!-- 🔄 Flip camera button -->
+      <button id="flipBtn" type="button" style="margin-top:8px;">Flip Camera</button>
       <div id="status"></div>
       <img id="cam-preview" alt="Preview will appear here" />
     </div>
@@ -219,7 +221,7 @@
         });
       }
 
-      // -------- Compression --------
+      // -------- Compression (unchanged) --------
       const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
 
       async function fileToBitmap(file) {
@@ -305,7 +307,7 @@
         }
       }
 
-      // -------- Gallery upload flow --------
+      // -------- Gallery upload flow (unchanged) --------
       $("#uploadBtn").onclick = async () => {
         const original = $("#file").files[0];
         if (!original) { alert("Pick a file first"); return; }
@@ -316,18 +318,28 @@
         } catch (e) { /* already handled */ }
       };
 
-      // -------- Camera flow --------
+      // -------- Camera flow with Flip --------
       const video = $("#camera");
       const capturedImg = $("#captured");
       const overlay = $("#camOverlay");
       let stream = null;
       let hasCapture = false;
       let capturedBlob = null;
+      let facing = "user"; // "user" | "environment"
 
       async function startCamera() {
         try {
           stopCamera();
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+          // Try exact first (better on Chrome), then fallback to ideal
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { exact: facing } }, audio: false
+            });
+          } catch {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: facing }, audio: false
+            });
+          }
           video.srcObject = stream;
           video.play().catch(()=>{});
           overlay.style.display = "none";
@@ -391,12 +403,26 @@
         if (!capturedBlob) return;
         try {
           setStatus("Compressing…", "", 1);
-          // give a unique file name to avoid duplicate detection by name
+          // Unique filename to avoid duplicate-by-name
           const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type: "image/jpeg" });
           const compressed = await compressImageToLimit(rawFile, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 1);
           $("#uploadCamBtn").disabled = true;
         } catch (e) { /* already handled */ }
+      };
+
+      // 🔄 Flip camera
+      $("#flipBtn").onclick = async () => {
+        facing = (facing === "user") ? "environment" : "user";
+        // Reset capture state when flipping
+        $("#retakeBtn").disabled = true;
+        $("#uploadCamBtn").disabled = true;
+        $("#captureBtn").disabled = false;
+        capturedBlob = null;
+        hasCapture = false;
+        capturedImg.style.display = "none";
+        capturedImg.src = "";
+        await startCamera();
       };
 
       // -------- Mode switching --------
