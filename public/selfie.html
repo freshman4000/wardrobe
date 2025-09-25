@@ -41,6 +41,24 @@
       .del { position: absolute; top: 6px; right: 6px; border: none; border-radius: 999px; width: 28px; height: 28px; font-weight: 700; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; cursor: pointer; }
       .del:active { transform: scale(.96); }
 
+      /* ▼ NEW: save-to-camera-roll button */
+      .save {
+        position: absolute;
+        right: 6px;
+        bottom: 6px;
+        border: none;
+        border-radius: 999px;
+        width: 28px;
+        height: 28px;
+        font-weight: 700;
+        background: rgba(0,0,0,.55);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+      }
+      .save:active { transform: scale(.96); }
+
       .ok { color: #0a7b32; }
       .warn { color: #b06a00; }
       .err { color: #b00020; }
@@ -168,7 +186,6 @@
       };
       const haptic = (type) => tg?.HapticFeedback?.notificationOccurred?.(type);
 
-      // Toggle this if you ever want to allow uploads when model is unavailable
       const STRICT_POSE_REQUIRED = true;
 
       function uniqueName(ext=".jpg") {
@@ -209,12 +226,12 @@
 
       async function loadGallery(limit = 24) {
         const initData = tg.initData || "";
-        const res = await fetch(`${BACKEND_BASE}/selfies/list`, {
+        theRes = await fetch(`${BACKEND_BASE}/selfies/list`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, limit })
         });
-        if (!res.ok) throw new Error("Failed to load gallery");
-        const items = await res.json();
+        if (!theRes.ok) throw new Error("Failed to load gallery");
+        const items = await theRes.json();
         renderGallery(items);
 
         const gPrev = $("#preview");
@@ -222,6 +239,29 @@
           gPrev.src = items[0].url;
           document.querySelector("#gallery .tile")?.classList.add("selected");
         }
+      }
+
+      // ▼ NEW: helper to trigger “Save to camera roll”
+      function filenameFromKey(key) {
+        if (!key) return `selfie_${Date.now()}.jpg`;
+        const base = key.split('/').pop() || `selfie_${Date.now()}.jpg`;
+        return base.includes('.') ? base : `${base}.jpg`;
+      }
+      function saveImage(url, suggestedName) {
+        // Prefer Telegram openLink (lets the OS share-sheet / save UI appear)
+        if (window.Telegram?.WebApp?.openLink) {
+          window.Telegram.WebApp.openLink(url);
+          return;
+        }
+        // Try download attribute (works on many browsers; iOS Safari may ignore)
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = suggestedName || 'photo.jpg';
+        a.target = '_blank';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
       }
 
       function renderGallery(items) {
@@ -239,6 +279,16 @@
             document.querySelectorAll("#gallery .tile.selected").forEach(n => n.classList.remove("selected"));
             cell.classList.add("selected");
           });
+
+          // ▼ NEW: save button (bottom-right)
+          const saveBtn = document.createElement("button");
+          saveBtn.className = "save";
+          saveBtn.title = "Save to camera roll";
+          saveBtn.textContent = "↓";
+          saveBtn.onclick = (e) => {
+            e.stopPropagation();
+            saveImage(it.url, filenameFromKey(it.key));
+          };
 
           const btn = document.createElement("button");
           btn.className = "del"; btn.title = "Delete"; btn.textContent = "×";
@@ -258,6 +308,7 @@
           };
 
           cell.appendChild(img);
+          cell.appendChild(saveBtn);
           cell.appendChild(btn);
           wrap.appendChild(cell);
         });
@@ -382,12 +433,10 @@
           setStatus("Compressing…", "", 2);
           const compressed = await compressImageToLimit(original, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 2);
-          // After upload, keep button disabled until a new valid file is picked
           $("#uploadBtn").disabled = true;
         } catch {}
       };
 
-      // Enable/disable upload based on pose when user selects a gallery file
       $("#file").addEventListener("change", async () => {
         $("#uploadBtn").disabled = true;
         setStatus("", "", 2);
@@ -397,7 +446,6 @@
         if (ok) {
           setStatus("Looks good! You can upload.", "ok", 2);
           $("#uploadBtn").disabled = false;
-          // Show preview
           const url = URL.createObjectURL(f);
           $("#preview").src = url;
         }
@@ -449,7 +497,6 @@
       }
       $("#flipBtn").onclick = async () => { facing = (facing === "user" ? {exact:"environment"} : "user"); await startCamera(); };
 
-      // Capture -> validate -> only then show Upload
       $("#captureBtn").onclick = async () => {
         if (!video.videoWidth) return;
         const w = video.videoWidth, h = video.videoHeight;
@@ -463,7 +510,6 @@
         $("#retakeBtn").disabled = false;
         $("#captureBtn").disabled = true;
 
-        // STRICT: validate pose now
         setStatus("Checking selfie…", "", 1);
         const ok = STRICT_POSE_REQUIRED ? await validatePoseStrict(capturedBlob, 1) : true;
         if (ok) {
@@ -485,7 +531,6 @@
           const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type: "image/jpeg" });
           const compressed = await compressImageToLimit(rawFile, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 1);
-          // After upload, return to active camera
           await startCamera();
         } catch {}
       };
@@ -501,7 +546,7 @@
         galBtn.classList.remove("active");
         camBlock.classList.add("active");
         galBlock.classList.remove("active");
-        setStatus("", "", 2); // clear gallery status
+        setStatus("", "", 2);
         startCamera();
       }
       async function activateGalleryMode() {
@@ -509,9 +554,9 @@
         camBtn.classList.remove("active");
         galBlock.classList.add("active");
         camBlock.classList.remove("active");
-        setStatus("", "", 1); // clear camera status
+        setStatus("", "", 1);
         stopCamera();
-        $("#uploadBtn").disabled = true; // locked until a valid file passes pose check
+        $("#uploadBtn").disabled = true;
         await loadGallery().catch(console.error);
       }
 
