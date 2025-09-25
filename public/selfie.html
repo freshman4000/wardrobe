@@ -96,6 +96,7 @@
     </div>
 
     <script>
+      // ------- TG + base -------
       const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
       const tg = window.Telegram?.WebApp || { initData: "" };
       tg?.ready?.();
@@ -107,11 +108,13 @@
       };
       const haptic = (type) => tg?.HapticFeedback?.notificationOccurred?.(type);
 
+      // Unique name to avoid "duplicate" by filename
       function uniqueName(ext=".jpg") {
         const rand = Math.random().toString(36).slice(2, 8);
         return `camera_${Date.now()}_${rand}${ext}`;
       }
 
+      // ------- Backend -------
       async function requestPresign(file) {
         const initData = tg.initData || "";
         const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
@@ -124,12 +127,12 @@
 
       async function finalize({ key, sizeBytes, contentType }) {
         const initData = tg.initData || "";
-        const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
+        theRes = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ initData, key, sizeBytes, contentType })
         });
-        if (!res.ok) throw new Error("Failed to finalize");
-        return res.json();
+        if (!theRes.ok) throw new Error("Failed to finalize");
+        return theRes.json();
       }
 
       async function deleteSelfie(key) {
@@ -198,6 +201,7 @@
         });
       }
 
+      // ------- Compression -------
       const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
 
       async function fileToBitmap(file) {
@@ -246,6 +250,7 @@
         } finally { close(); }
       }
 
+      // ------- Upload pipeline (shared) -------
       async function uploadFileThroughPipeline(file, whichStatus=1) {
         try {
           setStatus("Requesting presign…", "", whichStatus);
@@ -264,23 +269,20 @@
             key, sizeBytes: file.size, contentType: file.type
           });
 
-          // ✅ Show preview in the *active* mode
+          // Show success frame briefly in camera mode, then return to live
           if ($("#cameraBlock").classList.contains("active")) {
             const cap = $("#captured");
             if (cap) {
               cap.src = previewUrl;
               cap.style.display = "block";
-              $("#camera")?.style && ($("#camera").style.display = "none");
-              $("#uploadCamBtn").style.display = "none"; // already uploaded
-              $("#captureBtn").disabled = false;
-              $("#retakeBtn").disabled = true;
             }
+            // brief success flash, then reset to live camera
+            setTimeout(() => resetCameraUI(), 600);
           } else {
             const gPrev = $("#preview");
             if (gPrev) gPrev.src = previewUrl;
           }
 
-          // Only refresh gallery when gallery mode is visible
           if ($("#galleryBlock").classList.contains("active")) {
             await loadGallery();
           }
@@ -295,7 +297,7 @@
         }
       }
 
-      // Gallery upload
+      // ------- Gallery upload -------
       $("#uploadBtn").onclick = async () => {
         const original = $("#file").files[0];
         if (!original) { alert("Pick a file first"); return; }
@@ -306,13 +308,29 @@
         } catch {}
       };
 
-      // Camera flow
+      // ------- Camera flow -------
       const video = $("#camera");
       const capturedImg = $("#captured");
       const overlay = $("#camOverlay");
       let stream = null;
       let facing = "user";
       let capturedBlob = null;
+
+      // Reset UI back to live camera
+      function resetCameraUI() {
+        if (capturedImg) {
+          capturedImg.style.display = "none";
+          capturedImg.src = "";
+        }
+        if (video) {
+          video.style.display = "block";
+          try { video.play(); } catch(_) {}
+        }
+        $("#captureBtn").disabled = false;
+        $("#retakeBtn").disabled  = true;
+        $("#uploadCamBtn").style.display = "none";
+        capturedBlob = null;
+      }
 
       async function startCamera() {
         try {
@@ -321,11 +339,7 @@
           video.srcObject = stream;
           await video.play().catch(()=>{});
           overlay.style.display = "none";
-          capturedImg.style.display = "none";
-          video.style.display = "block";
-          $("#uploadCamBtn").style.display = "none";
-          $("#retakeBtn").disabled = true;
-          $("#captureBtn").disabled = false;
+          resetCameraUI(); // ensure fresh state when starting
         } catch (e) {
           console.error(e);
           overlay.textContent = "Camera unavailable";
@@ -356,13 +370,7 @@
       };
 
       $("#retakeBtn").onclick = () => {
-        capturedImg.style.display = "none";
-        capturedImg.src = "";
-        video.style.display = "block";
-        $("#captureBtn").disabled = false;
-        $("#retakeBtn").disabled = true;
-        $("#uploadCamBtn").style.display = "none";
-        capturedBlob = null;
+        resetCameraUI();
       };
 
       $("#uploadCamBtn").onclick = async () => {
@@ -372,11 +380,10 @@
           const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type: "image/jpeg" });
           const compressed = await compressImageToLimit(rawFile, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 1);
-          $("#uploadCamBtn").style.display = "none";
         } catch {}
       };
 
-      // Mode switching
+      // ------- Mode switching -------
       const camBtn = $("#cameraModeBtn");
       const galBtn = $("#galleryModeBtn");
       const camBlock = $("#cameraBlock");
