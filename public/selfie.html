@@ -1,318 +1,240 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Selfie Uploader</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-      :root { --pad: 16px; }
-      body { font-family: system-ui, sans-serif; padding: var(--pad); }
-      a { color: #246bff; text-decoration: none; }
-      h3 { margin: 0 0 8px; }
-      #status { font-size: 12px; opacity: .75; margin-top: 6px; min-height: 1.2em; }
-      #preview, #camPreview { margin-top: 16px; max-width: 100%; border-radius: 12px; display: none; background:#111; }
+<head>
+  <meta charset="utf-8" />
+  <title>Selfie Uploader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root { --pad: 16px; }
+    body { font-family: system-ui, sans-serif; padding: var(--pad); }
+    h3 { margin: 0 0 8px; }
+    #status { font-size: 12px; opacity: .75; margin-top: 6px; min-height: 1.2em; }
+    #preview { margin-top: 16px; max-width: 100%; border-radius: 12px; display: block; }
+    button, input { margin-top: 12px; width: 100%; padding: 12px; border-radius: 10px; }
+    #gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
+    #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; cursor: pointer; }
+    .ok { color: #0a7b32; }
+    .warn { color: #b06a00; }
+    .err { color: #b00020; }
+    .tile { position: relative; }
+    .tile.selected img { outline: 3px solid rgba(0,0,0,.3); }
+    .del {
+      position: absolute; top: 6px; right: 6px;
+      border: none; border-radius: 999px; width: 28px; height: 28px;
+      font-weight: 700; background: rgba(0,0,0,.55); color: #fff;
+      display: grid; place-items: center; cursor: pointer;
+    }
+    .del:active { transform: scale(.96); }
+    .chooser { display: flex; gap: 12px; margin: 16px 0; }
+    .chooser button { flex: 1; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    #cameraBlock, #galleryBlock { display: none; }
+    video { width: 100%; border-radius: 12px; margin-top: 12px; }
+  </style>
+</head>
 
-      .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 6px; }
-      .bigbtn {
-        display: grid; place-items: center; gap: 6px;
-        padding: 18px 12px; border-radius: 16px; border: none; cursor: pointer;
-        background: #111; color: #fff; font-size: 16px; font-weight: 600;
-      }
-      .bigbtn .icon { font-size: 28px; line-height: 1; }
+<body>
+  <a class="back" href="/">← Back</a>
+  <h3>Choose upload method</h3>
 
-      .panel { display: none; margin-top: 8px; padding: 12px; border-radius: 14px; background: #0f0f0f0d; }
-      .panel.active { display: block; }
+  <div class="chooser">
+    <button id="chooseCamera">📷 Camera</button>
+    <button id="chooseGallery">🖼️ Gallery</button>
+  </div>
 
-      .btnrow { display:flex; gap:8px; }
-      .btnrow .btn { flex:1; padding: 12px; border-radius: 10px; border: none; cursor: pointer; }
-      button, input[type="file"] { margin-top: 12px; width: 100%; padding: 12px; border-radius: 10px; }
+  <!-- Camera block -->
+  <div id="cameraBlock">
+    <video id="cameraPreview" autoplay playsinline></video>
+    <button id="snapBtn">Take Photo</button>
+    <img id="camPhoto" style="display:none; margin-top:12px; border-radius:12px;" />
+    <button id="uploadCamBtn" disabled>Upload Photo</button>
+  </div>
 
-      .ok { color: #0a7b32; }
-      .warn { color: #b06a00; }
-      .err { color: #b00020; }
+  <!-- Gallery block -->
+  <div id="galleryBlock">
+    <input id="file" type="file" accept="image/*" />
+    <button id="uploadBtn">Upload</button>
+  </div>
 
-      #gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
-      #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; cursor: pointer; }
-      .tile { position: relative; }
-      .tile.selected img { outline: 3px solid rgba(0,0,0,.3); }
-      .del {
-        position: absolute; top: 6px; right: 6px;
-        border: none; border-radius: 999px; width: 28px; height: 28px;
-        font-weight: 700; background: rgba(0,0,0,.55); color: #fff;
-        display: grid; place-items: center; cursor: pointer;
-      }
-      .del:active { transform: scale(.96); }
-      .hint { font-size: 12px; opacity: .7; margin-top: 4px; }
-    </style>
-  </head>
+  <div id="status"></div>
+  <img id="preview" alt="Preview will appear here" />
+  <div id="gallery"></div>
 
-  <body>
-    <a href="/">← Back</a>
-    <h3>Add a new selfie</h3>
+  <script>
+    const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
+    const tg = window.Telegram?.WebApp || { initData: "" };
+    tg?.ready?.();
 
-    <!-- Choice buttons -->
-    <div class="choice">
-      <button id="chooseCamera" class="bigbtn">
-        <div class="icon">📷</div>
-        Use Camera
-      </button>
-      <button id="chooseGallery" class="bigbtn">
-        <div class="icon">🖼️</div>
-        Choose from Gallery
-      </button>
-    </div>
+    const $ = s => document.querySelector(s);
+    const setStatus = (msg, cls="") => { const el=$("#status"); el.className=cls; el.textContent=msg||""; };
+    const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
 
-    <!-- Camera panel -->
-    <div id="cameraPanel" class="panel">
-      <div class="btnrow">
-        <button id="openCamBtn" class="btn">Open Camera</button>
-        <button id="uploadCamBtn" class="btn" disabled>Upload Captured</button>
-      </div>
-      <div class="hint">Front camera is recommended. If your device ignores it, the regular picker appears.</div>
-      <img id="camPreview" alt="Captured preview" />
-      <input id="camInput" type="file" accept="image/*" capture="user" style="display:none" />
-    </div>
+    // ----- Unique filename helper -----
+    function uniqueName(ext=".jpg") {
+      const ts = Date.now();
+      const rand = Math.floor(Math.random()*1e6);
+      return `selfie_${ts}_${rand}${ext}`;
+    }
 
-    <!-- Gallery/file-picker panel -->
-    <div id="galleryPanel" class="panel">
-      <input id="file" type="file" accept="image/*" />
-      <button id="uploadBtn">Upload Selected</button>
-      <img id="preview" alt="Preview" />
-      <div id="gallery"></div>
-    </div>
-
-    <div id="status"></div>
-
-    <script>
-      // -------- Telegram + backend --------
-      const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
-      const tg = window.Telegram?.WebApp || { initData: "" };
-      tg?.ready?.();
-
-      // -------- Helpers --------
-      const $ = (s) => document.querySelector(s);
-      const setStatus = (msg, cls = "") => { const el = $("#status"); el.className = cls; el.textContent = msg || ""; };
-      const haptic = (type) => tg?.HapticFeedback?.notificationOccurred?.(type);
+    // ----- Backend helpers -----
+    async function requestPresign(file) {
       const initData = tg.initData || "";
-
-      function showPanel(which) {
-        $("#cameraPanel").classList.toggle("active", which === "camera");
-        $("#galleryPanel").classList.toggle("active", which === "gallery");
-      }
-
-      $("#chooseCamera").onclick  = () => showPanel("camera");
-      $("#chooseGallery").onclick = () => showPanel("gallery");
-
-      // default: show gallery (can change to camera if you prefer)
-      showPanel("gallery");
-
-      // -------- Backend --------
-      async function requestPresign(file) {
-        const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData, filename: file.name, contentType: file.type })
-        });
-        if (!res.ok) throw new Error("Failed to presign");
-        return res.json(); // { uploadUrl, key }
-      }
-      async function finalize({ key, sizeBytes, contentType }) {
-        const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData, key, sizeBytes, contentType })
-        });
-        if (!res.ok) throw new Error("Failed to finalize");
-        return res.json(); // { previewUrl, message, duplicate, ... }
-      }
-      async function deleteSelfie(key) {
-        const res = await fetch(`${BACKEND_BASE}/selfies/delete`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData, key })
-        });
-        if (!res.ok) throw new Error("Failed to delete");
-        return res.json();
-      }
-      async function loadGallery(limit = 24) {
-        const res = await fetch(`${BACKEND_BASE}/selfies/list`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData, limit })
-        });
-        if (!res.ok) throw new Error("Failed to load gallery");
-        const items = await res.json();
-        renderGallery(items);
-
-        // default first image if preview empty
-        const preview = $("#preview");
-        if (!preview.src && items.length) {
-          preview.src = items[0].url;
-          preview.style.display = 'block';
-          document.querySelector("#gallery .tile")?.classList.add("selected");
-        }
-      }
-
-      // -------- Gallery --------
-      function renderGallery(items) {
-        const wrap = $("#gallery");
-        wrap.innerHTML = "";
-        items.forEach(it => {
-          const cell = document.createElement("div");
-          cell.className = "tile";
-
-          const img = document.createElement("img");
-          img.src = it.url; img.alt = it.key;
-          img.addEventListener("click", () => {
-            $("#preview").src = it.url;
-            $("#preview").style.display = 'block';
-            document.querySelectorAll("#gallery .tile.selected").forEach(n => n.classList.remove("selected"));
-            cell.classList.add("selected");
-          });
-
-          const btn = document.createElement("button");
-          btn.className = "del"; btn.title = "Delete"; btn.textContent = "×";
-          btn.onclick = async (e) => {
-            e.stopPropagation();
-            if (!confirm("Delete this photo?")) return;
-            btn.disabled = true;
-            try {
-              await deleteSelfie(it.key);
-              await loadGallery();
-              haptic("success");
-            } catch (err) {
-              alert(err.message || "Delete failed");
-              haptic("error");
-              btn.disabled = false;
-            }
-          };
-
-          cell.appendChild(img);
-          cell.appendChild(btn);
-          wrap.appendChild(cell);
-        });
-      }
-
-      // -------- Shared upload pipeline --------
-      const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
-
-      async function uploadFileThroughPipeline(file) {
-        setStatus("Compressing…");
-        const compressed = await compressImageToLimit(file, MAX_BYTES, MAX_DIM);
-
-        setStatus("Requesting presign…");
-        const { uploadUrl, key } = await requestPresign(compressed);
-
-        setStatus("Uploading…");
-        const putRes = await fetch(uploadUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": compressed.type,
-            "x-amz-server-side-encryption": "AES256"
-          },
-          body: compressed
-        });
-        if (!putRes.ok) throw new Error("Upload failed");
-
-        setStatus("Finalizing…");
-        const { previewUrl, message, duplicate } = await finalize({
-          key, sizeBytes: compressed.size, contentType: compressed.type
-        });
-
-        // show preview in gallery panel & refresh gallery
-        $("#preview").src = previewUrl;
-        $("#preview").style.display = 'block';
-        await loadGallery();
-
-        setStatus(message || "Uploaded", duplicate ? "warn" : "ok");
-        haptic(duplicate ? "warning" : "success");
-      }
-
-      // file-picker flow (gallery panel)
-      $("#uploadBtn").onclick = async () => {
-        const file = $("#file").files[0];
-        if (!file) { alert("Pick a file first"); return; }
-        try { await uploadFileThroughPipeline(file); }
-        catch (e) { console.error(e); setStatus(e.message || "Something went wrong", "err"); haptic("error"); }
-      };
-
-      // -------- Camera flow --------
-      const camInput   = $("#camInput");
-      const camPreview = $("#camPreview");
-      let capturedBlob = null;
-
-      $("#openCamBtn").onclick = () => camInput.click();
-
-      camInput.addEventListener("change", async (e) => {
-        const f = e.target.files?.[0];
-        if (!f) return;
-        capturedBlob = f;
-        camPreview.src = URL.createObjectURL(f);
-        camPreview.style.display = 'block';
-        $("#uploadCamBtn").disabled = false;
+      const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, filename: file.name, contentType: file.type })
       });
+      if (!res.ok) throw new Error("Failed to presign");
+      return res.json();
+    }
 
-      $("#uploadCamBtn").onclick = async () => {
-        if (!capturedBlob) return;
-        try {
-          await uploadFileThroughPipeline(capturedBlob);
-          $("#uploadCamBtn").disabled = true; // keep preview visible
-          // optionally switch to gallery after upload:
-          // showPanel("gallery");
-        } catch (e) {
-          console.error(e);
-          setStatus(e.message || "Something went wrong", "err");
-          haptic("error");
-        }
-      };
+    async function finalize({ key, sizeBytes, contentType }) {
+      const initData = tg.initData || "";
+      const res = await fetch(`${BACKEND_BASE}/selfies/finalize`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, key, sizeBytes, contentType })
+      });
+      if (!res.ok) throw new Error("Failed to finalize");
+      return res.json();
+    }
 
-      // -------- Compression helpers --------
-      async function fileToBitmap(file) {
-        if ('createImageBitmap' in window) {
-          const bitmap = await createImageBitmap(file);
-          return { img: bitmap, w: bitmap.width, h: bitmap.height, close: () => bitmap.close() };
-        }
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-        URL.revokeObjectURL(url);
-        return { img, w: img.naturalWidth, h: img.naturalHeight, close: () => {} };
+    async function deleteSelfie(key) {
+      const initData = tg.initData || "";
+      const res = await fetch(`${BACKEND_BASE}/selfies/delete`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, key })
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    }
+
+    async function loadGallery(limit=24) {
+      const initData = tg.initData || "";
+      const res = await fetch(`${BACKEND_BASE}/selfies/list`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, limit })
+      });
+      if (!res.ok) throw new Error("Failed to load gallery");
+      const items = await res.json();
+      renderGallery(items);
+
+      if (!$("#preview").src && items.length) {
+        $("#preview").src = items[0].url;
+        document.querySelector("#gallery .tile")?.classList.add("selected");
       }
-      function drawToCanvas(src, w, h) {
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        c.getContext('2d').drawImage(src, 0, 0, w, h);
-        return c;
-      }
-      async function canvasToJpegUnder(c, max) {
-        let lo=0.5, hi=0.95, best=null, blob=await new Promise(r=>c.toBlob(r,'image/jpeg',hi));
-        if (blob.size <= max) return blob;
-        for (let i=0;i<7;i++){
-          const mid=(lo+hi)/2;
-          blob = await new Promise(r=>c.toBlob(r,'image/jpeg',mid));
-          if (blob.size <= max) { best=blob; hi=mid; } else { lo=mid; }
-        }
-        return best || blob;
-      }
-      async function compressImageToLimit(file, maxBytes=MAX_BYTES, maxDim=MAX_DIM){
-        const {img,w,h,close}=await fileToBitmap(file);
-        try {
-          let tw=w, th=h;
-          const scale = Math.max(w,h) > maxDim ? maxDim/Math.max(w,h) : 1;
-          if (scale < 1) { tw=Math.round(w*scale); th=Math.round(h*scale); }
-          let canvas = drawToCanvas(img, tw, th);
-          let jpeg = await canvasToJpegUnder(canvas, maxBytes);
-          let attempts = 0;
-          while (jpeg.size > maxBytes && attempts < 3 && Math.max(tw,th) > 512) {
-            tw = Math.round(tw*0.85); th = Math.round(th*0.85);
-            canvas = drawToCanvas(img, tw, th);
-            jpeg = await canvasToJpegUnder(canvas, maxBytes);
-            attempts++;
+    }
+
+    function renderGallery(items) {
+      const wrap = $("#gallery");
+      wrap.innerHTML = "";
+      items.forEach(it => {
+        const cell = document.createElement("div");
+        cell.className = "tile";
+
+        const img = document.createElement("img");
+        img.src = it.url; img.alt = it.key;
+        img.onclick = () => {
+          $("#preview").src = it.url;
+          document.querySelectorAll("#gallery .tile.selected").forEach(n=>n.classList.remove("selected"));
+          cell.classList.add("selected");
+        };
+
+        const btn = document.createElement("button");
+        btn.className = "del"; btn.textContent = "×";
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm("Delete this photo?")) return;
+          btn.disabled = true;
+          try {
+            await deleteSelfie(it.key);
+            await loadGallery();
+            haptic("success");
+          } catch (err) {
+            alert(err.message||"Delete failed"); haptic("error");
+            btn.disabled=false;
           }
-          return new File([jpeg], replaceExt(file.name, '.jpg'), { type: 'image/jpeg' });
-        } finally { close(); }
-      }
-      function replaceExt(name,newExt){ const i=name.lastIndexOf('.'); return (i>0?name.slice(0,i):name)+newExt; }
+        };
 
-      // -------- Init --------
-      document.addEventListener("DOMContentLoaded", () => { loadGallery().catch(console.error); });
-    </script>
-  </body>
+        cell.appendChild(img);
+        cell.appendChild(btn);
+        wrap.appendChild(cell);
+      });
+    }
+
+    // ----- Upload pipeline -----
+    async function uploadFileThroughPipeline(file) {
+      setStatus("Requesting presign…");
+      const { uploadUrl, key } = await requestPresign(file);
+      setStatus("Uploading…");
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type, "x-amz-server-side-encryption":"AES256" },
+        body: file
+      });
+      if (!putRes.ok) throw new Error("Upload failed");
+      setStatus("Finalizing…");
+      const { previewUrl, message, duplicate } = await finalize({
+        key, sizeBytes:file.size, contentType:file.type
+      });
+      $("#preview").src = previewUrl;
+      await loadGallery();
+      setStatus(message, duplicate?"warn":"ok");
+      haptic(duplicate?"warning":"success");
+    }
+
+    // ----- Camera flow -----
+    let stream, capturedBlob=null;
+    $("#chooseCamera").onclick = async () => {
+      $("#cameraBlock").style.display="block";
+      $("#galleryBlock").style.display="none";
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({ video:true });
+        $("#cameraPreview").srcObject = stream;
+      }
+    };
+
+    $("#snapBtn").onclick = () => {
+      const video = $("#cameraPreview");
+      const canvas=document.createElement("canvas");
+      canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+      canvas.getContext("2d").drawImage(video,0,0);
+      canvas.toBlob(blob=>{
+        capturedBlob=blob;
+        $("#camPhoto").src=URL.createObjectURL(blob);
+        $("#camPhoto").style.display="block";
+        $("#uploadCamBtn").disabled=false;
+      },"image/jpeg",0.9);
+    };
+
+    $("#uploadCamBtn").onclick = async () => {
+      if (!capturedBlob) return;
+      try {
+        const named = new File([capturedBlob], uniqueName(".jpg"), { type:"image/jpeg" });
+        await uploadFileThroughPipeline(named);
+        $("#uploadCamBtn").disabled=true;
+      } catch (e) {
+        console.error(e); setStatus(e.message||"Something went wrong","err"); haptic("error");
+      }
+    };
+
+    // ----- Gallery flow -----
+    $("#chooseGallery").onclick = () => {
+      $("#cameraBlock").style.display="none";
+      $("#galleryBlock").style.display="block";
+    };
+
+    $("#uploadBtn").onclick = async () => {
+      const original=$("#file").files[0];
+      if (!original) { alert("Pick a file first"); return; }
+      try {
+        const named = new File([original], uniqueName(original.name.slice(original.name.lastIndexOf("."))), { type: original.type });
+        await uploadFileThroughPipeline(named);
+      } catch (e) {
+        console.error(e); setStatus(e.message||"Something went wrong","err"); haptic("error");
+      }
+    };
+
+    // Init
+    document.addEventListener("DOMContentLoaded", ()=>{ loadGallery().catch(console.error); });
+  </script>
+</body>
 </html>
