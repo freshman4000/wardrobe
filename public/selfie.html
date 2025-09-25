@@ -11,69 +11,34 @@
       h3 { margin: 0 0 8px; }
       #status, #status2 { font-size: 12px; opacity: .75; margin-top: 6px; min-height: 1.2em; }
 
-      /* Mode switcher */
       .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-      .mode-btn {
-        display: grid; place-items: center; gap: 6px;
-        padding: 12px; border-radius: 12px; border: 2px solid #ddd; background: #fff; cursor: pointer;
-        font-weight: 600;
-      }
+      .mode-btn { display: grid; place-items: center; gap: 6px; padding: 12px; border-radius: 12px; border: 2px solid #ddd; background: #fff; cursor: pointer; font-weight: 600; }
       .mode-btn.active { border-color: #4a90e2; background: #f1f7ff; }
-      .mode-btn svg { width: 28px; height: 28px; }
 
-      /* Blocks */
       .block { display: none; }
       .block.active { display: block; }
 
-      /* Camera area */
-      #cameraBox {
-        margin-top: 10px; border-radius: 12px; overflow: hidden;
-        background: #000; aspect-ratio: 3/4; position: relative;
-      }
+      #cameraBox { margin-top: 10px; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 3/4; position: relative; }
       #camera { width: 100%; height: 100%; object-fit: cover; display: block; }
       #captured { display: none; width: 100%; height: 100%; object-fit: cover; }
-      .cam-overlay {
-        position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-        color: #fff; background: rgba(0,0,0,.25); font-weight: 600;
-      }
+      .cam-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #fff; background: rgba(0,0,0,.25); font-weight: 600; }
 
-      /* Camera controls overlay */
-      .cam-controls {
-        position: absolute; left: 0; right: 0; bottom: 10px;
-        display: grid; grid-template-columns: 64px 1fr 64px; gap: 10px;
-        align-items: center; padding: 0 12px; pointer-events: none;
-      }
-      .cam-controls .left, .cam-controls .right, .cam-controls .center {
-        display: flex; justify-content: center; align-items: center; pointer-events: auto;
-      }
-      .fab, .fab-secondary {
-        border: none; border-radius: 999px; color: #fff; cursor: pointer;
-        display: grid; place-items: center;
-      }
-      .fab {
-        width: 64px; height: 64px; background: #4a90e2; box-shadow: 0 6px 20px rgba(0,0,0,.25);
-      }
-      .fab-secondary {
-        width: 44px; height: 44px; background: rgba(0,0,0,.55);
-      }
+      .cam-controls { position: absolute; left: 0; right: 0; bottom: 10px; display: grid; grid-template-columns: 64px 1fr 64px; gap: 10px; align-items: center; padding: 0 12px; pointer-events: none; }
+      .cam-controls .left, .cam-controls .right, .cam-controls .center { display: flex; justify-content: center; align-items: center; pointer-events: auto; }
+      .fab, .fab-secondary { border: none; border-radius: 999px; color: #fff; cursor: pointer; display: grid; place-items: center; }
+      .fab { width: 64px; height: 64px; background: #4a90e2; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+      .fab-secondary { width: 44px; height: 44px; background: rgba(0,0,0,.55); }
       .fab[disabled], .fab-secondary[disabled] { opacity: .5; cursor: default; }
       .fab:active, .fab-secondary:active { transform: scale(.98); }
-
       .control-stack { display: grid; gap: 4px; justify-items: center; color: #fff; font-size: 11px; }
       .control-stack .label { text-shadow: 0 1px 2px rgba(0,0,0,.6); }
 
-      /* Gallery block */
       #preview { margin-top: 12px; max-width: 100%; border-radius: 12px; display: block; }
       #gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
       #gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; cursor: pointer; }
       .tile { position: relative; }
       .tile.selected img { outline: 3px solid rgba(0,0,0,.3); }
-      .del {
-        position: absolute; top: 6px; right: 6px;
-        border: none; border-radius: 999px; width: 28px; height: 28px;
-        font-weight: 700; background: rgba(0,0,0,.55); color: #fff;
-        display: grid; place-items: center; cursor: pointer;
-      }
+      .del { position: absolute; top: 6px; right: 6px; border: none; border-radius: 999px; width: 28px; height: 28px; font-weight: 700; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; cursor: pointer; }
       .del:active { transform: scale(.96); }
 
       .ok { color: #0a7b32; }
@@ -86,7 +51,6 @@
     <a class="back" href="/">← Back</a>
     <h3>Upload your selfie</h3>
 
-    <!-- Mode switcher -->
     <div class="mode-switch">
       <button id="cameraModeBtn" class="mode-btn active" type="button">Camera</button>
       <button id="galleryModeBtn" class="mode-btn" type="button">Gallery</button>
@@ -132,26 +96,22 @@
     </div>
 
     <script>
-      // -------- Telegram + backend --------
       const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
       const tg = window.Telegram?.WebApp || { initData: "" };
       tg?.ready?.();
 
-      // -------- Helpers --------
       const $ = (s) => document.querySelector(s);
       const setStatus = (msg, cls = "", which=1) => {
         const id = which === 1 ? "#status" : "#status2";
-        const el = $(id); el.className = cls; el.textContent = msg || "";
+        const el = $(id); if (el) { el.className = cls; el.textContent = msg || ""; }
       };
       const haptic = (type) => tg?.HapticFeedback?.notificationOccurred?.(type);
 
-      // Unique name to avoid "duplicate"
       function uniqueName(ext=".jpg") {
         const rand = Math.random().toString(36).slice(2, 8);
         return `camera_${Date.now()}_${rand}${ext}`;
       }
 
-      // -------- Backend --------
       async function requestPresign(file) {
         const initData = tg.initData || "";
         const res = await fetch(`${BACKEND_BASE}/selfies/presign-upload`, {
@@ -192,18 +152,13 @@
         const items = await res.json();
         renderGallery(items);
 
-        // default to first image if preview empty
         const gPrev = $("#preview");
-        const cPrev = $("#cam-preview");
-        const anyPrevSet = (gPrev && gPrev.src) || (cPrev && cPrev.src);
-        if (!anyPrevSet && items.length) {
-          if (gPrev) gPrev.src = items[0].url;
-          if (cPrev) cPrev.src = items[0].url;
+        if (gPrev && !gPrev.src && items.length) {
+          gPrev.src = items[0].url;
           document.querySelector("#gallery .tile")?.classList.add("selected");
         }
       }
 
-      // -------- Gallery --------
       function renderGallery(items) {
         const wrap = $("#gallery");
         wrap.innerHTML = "";
@@ -215,10 +170,7 @@
           img.src = it.url; img.alt = it.key;
           img.addEventListener("click", () => {
             const gPrev = $("#preview");
-            const cPrev = $("#cam-preview");
-            if ($("#galleryBlock").classList.contains("active") && gPrev) gPrev.src = it.url;
-            if ($("#cameraBlock").classList.contains("active") && cPrev) cPrev.src = it.url;
-
+            if (gPrev) gPrev.src = it.url;
             document.querySelectorAll("#gallery .tile.selected").forEach(n => n.classList.remove("selected"));
             cell.classList.add("selected");
           });
@@ -246,7 +198,6 @@
         });
       }
 
-      // -------- Compression (unchanged) --------
       const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
 
       async function fileToBitmap(file) {
@@ -255,7 +206,7 @@
           return { img: bitmap, w: bitmap.width, h: bitmap.height, close: () => bitmap.close() };
         }
         const url = URL.createObjectURL(file);
-        const img = new Image(); 
+        const img = new Image();
         await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
         URL.revokeObjectURL(url);
         return { img, w: img.naturalWidth, h: img.naturalHeight, close: () => {} };
@@ -295,7 +246,6 @@
         } finally { close(); }
       }
 
-      // -------- Upload pipeline (shared) --------
       async function uploadFileThroughPipeline(file, whichStatus=1) {
         try {
           setStatus("Requesting presign…", "", whichStatus);
@@ -314,14 +264,27 @@
             key, sizeBytes: file.size, contentType: file.type
           });
 
-          // Show preview in active block
+          // ✅ Show preview in the *active* mode
           if ($("#cameraBlock").classList.contains("active")) {
-            $("#cam-preview").src = previewUrl;
+            const cap = $("#captured");
+            if (cap) {
+              cap.src = previewUrl;
+              cap.style.display = "block";
+              $("#camera")?.style && ($("#camera").style.display = "none");
+              $("#uploadCamBtn").style.display = "none"; // already uploaded
+              $("#captureBtn").disabled = false;
+              $("#retakeBtn").disabled = true;
+            }
           } else {
-            $("#preview").src = previewUrl;
+            const gPrev = $("#preview");
+            if (gPrev) gPrev.src = previewUrl;
           }
 
-          await loadGallery();
+          // Only refresh gallery when gallery mode is visible
+          if ($("#galleryBlock").classList.contains("active")) {
+            await loadGallery();
+          }
+
           setStatus(message || "Uploaded", duplicate ? "warn" : "ok", whichStatus);
           tg.HapticFeedback?.notificationOccurred(duplicate ? "warning" : "success");
         } catch (e) {
@@ -332,7 +295,7 @@
         }
       }
 
-      // -------- Gallery upload flow --------
+      // Gallery upload
       $("#uploadBtn").onclick = async () => {
         const original = $("#file").files[0];
         if (!original) { alert("Pick a file first"); return; }
@@ -340,121 +303,80 @@
           setStatus("Compressing…", "", 2);
           const compressed = await compressImageToLimit(original, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 2);
-        } catch (e) { /* already handled */ }
+        } catch {}
       };
 
-      // -------- Camera flow with Flip + overlay controls --------
+      // Camera flow
       const video = $("#camera");
       const capturedImg = $("#captured");
       const overlay = $("#camOverlay");
-      const captureBtn = $("#captureBtn");
-      const uploadCamBtn = $("#uploadCamBtn");
-      const retakeBtn = $("#retakeBtn");
       let stream = null;
+      let facing = "user";
       let capturedBlob = null;
-      let facing = "user"; // "user" | "environment"
 
       async function startCamera() {
         try {
           stopCamera();
-          // Try exact first, then ideal fallback
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: { exact: facing } }, audio: false
-            });
-          } catch {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: facing }, audio: false
-            });
-          }
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
           video.srcObject = stream;
-          video.play().catch(()=>{});
+          await video.play().catch(()=>{});
           overlay.style.display = "none";
           capturedImg.style.display = "none";
           video.style.display = "block";
-
-          // reset control states
-          captureBtn.style.display = "grid";
-          uploadCamBtn.style.display = "none";
-          retakeBtn.disabled = true;
-
-          capturedBlob = null;
+          $("#uploadCamBtn").style.display = "none";
+          $("#retakeBtn").disabled = true;
+          $("#captureBtn").disabled = false;
         } catch (e) {
           console.error(e);
           overlay.textContent = "Camera unavailable";
           overlay.style.display = "flex";
-          captureBtn.disabled = true;
-          uploadCamBtn.disabled = true;
-          retakeBtn.disabled = true;
+          $("#captureBtn").disabled = true;
+          $("#retakeBtn").disabled = true;
+          $("#uploadCamBtn").style.display = "none";
         }
       }
       function stopCamera() {
-        if (stream) {
-          for (const track of stream.getTracks()) track.stop();
-          stream = null;
-        }
+        if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
       }
+      $("#flipBtn").onclick = async () => { facing = (facing === "user" ? {exact:"environment"} : "user"); await startCamera(); };
 
-      // Capture frame
-      captureBtn.onclick = async () => {
+      $("#captureBtn").onclick = async () => {
         if (!video.videoWidth) return;
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        const c = document.createElement("canvas");
-        c.width = w; c.height = h;
+        const w = video.videoWidth, h = video.videoHeight;
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
         c.getContext("2d").drawImage(video, 0, 0, w, h);
         capturedBlob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.95));
 
         capturedImg.src = URL.createObjectURL(capturedBlob);
         capturedImg.style.display = "block";
         video.style.display = "none";
-
-        // toggle center button to "Upload"
-        captureBtn.style.display = "none";
-        uploadCamBtn.style.display = "grid";
-        retakeBtn.disabled = false;
+        $("#retakeBtn").disabled = false;
+        $("#uploadCamBtn").style.display = "grid";
+        $("#captureBtn").disabled = true;
       };
 
-      // Retake
-      retakeBtn.onclick = () => {
-        if (!stream) return;
+      $("#retakeBtn").onclick = () => {
         capturedImg.style.display = "none";
         capturedImg.src = "";
         video.style.display = "block";
+        $("#captureBtn").disabled = false;
+        $("#retakeBtn").disabled = true;
+        $("#uploadCamBtn").style.display = "none";
         capturedBlob = null;
-
-        // toggle back to "Capture"
-        uploadCamBtn.style.display = "none";
-        captureBtn.style.display = "grid";
-        retakeBtn.disabled = true;
       };
 
-      // Upload captured
-      uploadCamBtn.onclick = async () => {
+      $("#uploadCamBtn").onclick = async () => {
         if (!capturedBlob) return;
         try {
           setStatus("Compressing…", "", 1);
           const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type: "image/jpeg" });
           const compressed = await compressImageToLimit(rawFile, MAX_BYTES, MAX_DIM);
           await uploadFileThroughPipeline(compressed, 1);
-          uploadCamBtn.disabled = true;
-        } catch (e) { /* already handled */ }
+          $("#uploadCamBtn").style.display = "none";
+        } catch {}
       };
 
-      // Flip camera
-      $("#flipBtn").onclick = async () => {
-        facing = (facing === "user") ? "environment" : "user";
-        // Reset capture state when flipping
-        capturedImg.style.display = "none";
-        capturedImg.src = "";
-        uploadCamBtn.style.display = "none";
-        captureBtn.style.display = "grid";
-        retakeBtn.disabled = true;
-        capturedBlob = null;
-        await startCamera();
-      };
-
-      // -------- Mode switching --------
+      // Mode switching
       const camBtn = $("#cameraModeBtn");
       const galBtn = $("#galleryModeBtn");
       const camBlock = $("#cameraBlock");
@@ -465,28 +387,23 @@
         galBtn.classList.remove("active");
         camBlock.classList.add("active");
         galBlock.classList.remove("active");
-        setStatus("", "", 2);
+        setStatus("", "", 2); // clear gallery status
         startCamera();
       }
-      function activateGalleryMode() {
+      async function activateGalleryMode() {
         galBtn.classList.add("active");
         camBtn.classList.remove("active");
         galBlock.classList.add("active");
         camBlock.classList.remove("active");
-        setStatus("", "", 1);
+        setStatus("", "", 1); // clear camera status
         stopCamera();
+        await loadGallery().catch(console.error);
       }
 
       camBtn.onclick = activateCameraMode;
       galBtn.onclick = activateGalleryMode;
 
-      // -------- Init --------
-      document.addEventListener("DOMContentLoaded", async () => {
-        activateCameraMode();
-        await loadGallery().catch(console.error);
-      });
-
-      // Clean up camera on unload
+      document.addEventListener("DOMContentLoaded", () => { activateCameraMode(); });
       window.addEventListener("pagehide", stopCamera);
       window.addEventListener("beforeunload", stopCamera);
     </script>
