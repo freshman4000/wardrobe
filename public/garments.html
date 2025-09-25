@@ -9,214 +9,457 @@
     :root{--pad:16px}
     body{font-family:system-ui,sans-serif; padding:var(--pad);}
     h3{margin:0 0 8px}
-    #status{font-size:12px; opacity:.75; min-height:1.2em; margin-top:6px}
-    button,input{margin-top:12px; width:100%; padding:12px; border-radius:10px}
-    /* Preview */
-    #preview{margin-top:16px; max-width:100%; border-radius:12px; display:none}
-    /* Gallery */
-    #gallery{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:16px}
-    .tile{position:relative; cursor:pointer; outline:2px solid transparent; outline-offset:2px; border-radius:12px}
-    .tile.selected{outline-color:#6aa6ff;}
-    .tile img{width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:10px}
-    .del{position:absolute; top:6px; right:6px; width:28px; height:28px; border:none; border-radius:999px;
-         background:rgba(0,0,0,.55); color:#fff; font-weight:700; cursor:pointer}
     a.back{display:inline-block; margin-top:8px}
-    .err{color:#b00020}
+
+    /* status */
+    #status, #status2{font-size:12px; opacity:.85; min-height:1.2em; margin-top:6px}
     .ok{color:#0a7b32}
     .warn{color:#b06a00}
+    .err{color:#b00020}
+
+    /* mode switch */
+    .mode-switch{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px}
+    .mode-btn{
+      display:grid; place-items:center; gap:6px;
+      padding:12px; border-radius:12px; border:2px solid #ddd; background:#fff; cursor:pointer; font-weight:600;
+    }
+    .mode-btn.active{border-color:#4a90e2; background:#f1f7ff}
+
+    /* blocks */
+    .block{display:none}
+    .block.active{display:block}
+
+    /* camera */
+    #cameraBox{margin-top:10px; border-radius:12px; overflow:hidden; background:#000; aspect-ratio:3/4; position:relative}
+    #camera{width:100%; height:100%; object-fit:cover; display:block}
+    #captured{display:none; width:100%; height:100%; object-fit:cover}
+    .cam-overlay{position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:#fff; background:rgba(0,0,0,.25); font-weight:600}
+    .cam-controls{
+      position:absolute; left:0; right:0; bottom:10px;
+      display:grid; grid-template-columns:64px 1fr 64px; gap:10px; align-items:center; padding:0 12px; pointer-events:none;
+    }
+    .cam-controls .left, .cam-controls .right, .cam-controls .center{display:flex; justify-content:center; align-items:center; pointer-events:auto}
+    .fab, .fab-secondary{border:none; border-radius:999px; color:#fff; cursor:pointer; display:grid; place-items:center}
+    .fab{width:64px; height:64px; background:#4a90e2; box-shadow:0 6px 20px rgba(0,0,0,.25)}
+    .fab-secondary{width:44px; height:44px; background:rgba(0,0,0,.55)}
+    .fab[disabled], .fab-secondary[disabled]{opacity:.5; cursor:default}
+    .fab:active, .fab-secondary:active{transform:scale(.98)}
+    .control-stack{display:grid; gap:4px; justify-items:center; color:#fff; font-size:11px}
+    .control-stack .label{text-shadow:0 1px 2px rgba(0,0,0,.6)}
+
+    /* preview (gallery mode) */
+    #preview{margin-top:12px; max-width:100%; border-radius:12px; display:none}
+
+    /* gallery (gallery mode) */
+    #gallery{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:16px}
+    .tile{position:relative; cursor:pointer; outline:2px solid transparent; outline-offset:2px; border-radius:12px}
+    .tile.selected{outline-color:#6aa6ff}
+    .tile img{width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:10px}
+    .del{
+      position:absolute; top:6px; right:6px; width:28px; height:28px; border:none; border-radius:999px;
+      background:rgba(0,0,0,.55); color:#fff; font-weight:700; cursor:pointer
+    }
+
+    button,input{margin-top:12px; width:100%; padding:12px; border-radius:10px}
   </style>
 </head>
 <body>
-  <a class="back" href="/">← Back</a>
-  <h3>Upload clothes (max 3)</h3>
-  <input id="files" type="file" accept="image/*" multiple />
-  <button id="uploadBtn">Upload selected</button>
-  <div id="status"></div>
+<a class="back" href="/">← Back</a>
+<h3>Upload clothes (max 3)</h3>
 
-  <!-- NEW: big preview -->
+<!-- Mode switch -->
+<div class="mode-switch">
+  <button id="cameraModeBtn" class="mode-btn active" type="button">Camera</button>
+  <button id="galleryModeBtn" class="mode-btn" type="button">Gallery</button>
+</div>
+
+<!-- Camera Block -->
+<div id="cameraBlock" class="block active">
+  <div id="cameraBox">
+    <video id="camera" playsinline autoplay muted></video>
+    <img id="captured" alt="Captured garment preview" />
+    <div id="camOverlay" class="cam-overlay">Camera paused</div>
+
+    <div class="cam-controls">
+      <div class="left">
+        <div class="control-stack">
+          <button id="flipBtn" class="fab-secondary" type="button">⇆</button>
+          <div class="label">Flip</div>
+        </div>
+      </div>
+      <div class="center">
+        <button id="captureBtn" class="fab" type="button">●</button>
+        <button id="uploadCamBtn" class="fab" type="button" style="display:none;">↑</button>
+      </div>
+      <div class="right">
+        <div class="control-stack">
+          <button id="retakeBtn" class="fab-secondary" type="button" disabled>⟳</button>
+          <div class="label">Retake</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="status"></div>
+</div>
+
+<!-- Gallery Block -->
+<div id="galleryBlock" class="block">
+  <input id="files" type="file" accept="image/*" multiple />
+  <button id="uploadBtn" type="button">Upload selected</button>
+  <div id="status2"></div>
+
+  <!-- Big preview of selected tile -->
   <img id="preview" alt="Preview" />
 
+  <!-- User garments -->
   <div id="gallery"></div>
+</div>
 
-  <script>
-    // --- Config / Telegram ---
-    const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
-    const tg = window.Telegram?.WebApp || { initData: "" };
-    tg?.ready?.();
+<script>
+  // --- Config / Telegram ---
+  const BACKEND_BASE = "https://newfoundland-administered-peoples-limiting.trycloudflare.com";
+  const tg = window.Telegram?.WebApp || { initData: "" };
+  tg?.ready?.();
 
-    const $ = s => document.querySelector(s);
-    const setStatus = (m, cls="") => { const el=$("#status"); el.className=cls; el.textContent=m||""; };
-    const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
+  const $ = s => document.querySelector(s);
+  const setStatus = (m, cls="", which=1) => {
+    const el = which === 1 ? $("#status") : $("#status2");
+    if (!el) return;
+    el.className = cls;
+    el.textContent = m || "";
+  };
+  const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
 
-    let selectedKey = null; // for highlighting selected tile
+  // --- Helpers ---
+  function uniqueName(ext=".jpg"){
+    const rand = Math.random().toString(36).slice(2,8);
+    return `garment_${Date.now()}_${rand}${ext}`;
+  }
+  function cssEscape(s){ return s.replace(/([ #;?%&,.+*~\\':"!^$[\\]()=>|/@])/g,'\\$1'); }
 
-    // --- Backend calls ---
-    async function garmentsList(limit=12){
-      const initData=tg.initData||"";
-      const res=await fetch(`${BACKEND_BASE}/garments/list`,{
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ initData, limit })
-      });
-      if(!res.ok) throw new Error("Failed to load garments");
-      return res.json(); // [{key, url}]
+  // --- Backend calls ---
+  async function garmentsList(limit=12){
+    const initData=tg.initData||"";
+    const res=await fetch(`${BACKEND_BASE}/garments/list`,{
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ initData, limit })
+    });
+    if(!res.ok) throw new Error("Failed to load garments");
+    return res.json(); // [{key,url}]
+  }
+  async function garmentsPresign(file){
+    const initData=tg.initData||"";
+    const res=await fetch(`${BACKEND_BASE}/garments/presign-upload`,{
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ initData, filename:file.name, contentType:file.type })
+    });
+    if(!res.ok) throw new Error("Failed to presign garment");
+    return res.json(); // { uploadUrl, key }
+  }
+  async function garmentsFinalize({key,sizeBytes,contentType}){
+    const initData=tg.initData||"";
+    const res=await fetch(`${BACKEND_BASE}/garments/finalize`,{
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ initData, key, sizeBytes, contentType })
+    });
+    if(!res.ok) throw new Error("Failed to finalize garment");
+    return res.json(); // { previewUrl, duplicate, message }
+  }
+  async function garmentsDelete(key){
+    const initData=tg.initData||"";
+    const res=await fetch(`${BACKEND_BASE}/garments/delete`,{
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ initData, key })
+    });
+    if(!res.ok) throw new Error("Failed to delete garment");
+    return res.json(); // { ok:true }
+  }
+
+  // --- Compression (same as selfie flow) ---
+  const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
+
+  async function fileToBitmap(file){
+    if ('createImageBitmap' in window){
+      const bmp = await createImageBitmap(file);
+      return { img:bmp, w:bmp.width, h:bmp.height, close:()=>bmp.close() };
     }
-    async function garmentsPresign(file){
-      const initData=tg.initData||"";
-      const res=await fetch(`${BACKEND_BASE}/garments/presign-upload`,{
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ initData, filename:file.name, contentType:file.type })
-      });
-      if(!res.ok) throw new Error("Failed to presign garment");
-      return res.json(); // { uploadUrl, key }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
+    URL.revokeObjectURL(url);
+    return { img, w:img.naturalWidth, h:img.naturalHeight, close:()=>{} };
+  }
+  function drawToCanvas(src,w,h){
+    const c=document.createElement('canvas'); c.width=w; c.height=h;
+    c.getContext('2d').drawImage(src,0,0,w,h);
+    return c;
+  }
+  async function canvasToJpegUnder(c,max){
+    let lo=0.5, hi=0.95, best=null;
+    let blob=await new Promise(r=>c.toBlob(r,'image/jpeg',hi));
+    if(blob.size<=max) return blob;
+    for(let i=0;i<7;i++){
+      const mid=(lo+hi)/2;
+      blob=await new Promise(r=>c.toBlob(r,'image/jpeg',mid));
+      if(blob.size<=max){ best=blob; hi=mid; } else lo=mid;
     }
-    async function garmentsFinalize({key,sizeBytes,contentType}){
-      const initData=tg.initData||"";
-      const res=await fetch(`${BACKEND_BASE}/garments/finalize`,{
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ initData, key, sizeBytes, contentType })
-      });
-      if(!res.ok) throw new Error("Failed to finalize garment");
-      return res.json(); // { previewUrl, gallery, duplicate, message }
-    }
-    async function garmentsDelete(key){
-      const initData=tg.initData||"";
-      const res=await fetch(`${BACKEND_BASE}/garments/delete`,{
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ initData, key })
-      });
-      if(!res.ok) throw new Error("Failed to delete garment");
-      return res.json(); // { ok:true }
-    }
+    return best||blob;
+  }
+  async function compressImageToLimit(file, maxBytes=MAX_BYTES, maxDim=MAX_DIM){
+    const {img,w,h,close}=await fileToBitmap(file);
+    try{
+      let tw=w, th=h;
+      const scale = Math.max(w,h)>maxDim ? maxDim/Math.max(w,h) : 1;
+      if (scale<1){ tw=Math.round(w*scale); th=Math.round(h*scale); }
+      let canvas = drawToCanvas(img, tw, th);
+      let jpeg = await canvasToJpegUnder(canvas, maxBytes);
+      let attempts=0;
+      while (jpeg.size>maxBytes && attempts<3 && Math.max(tw,th)>512){
+        tw=Math.round(tw*0.85); th=Math.round(th*0.85);
+        canvas = drawToCanvas(img, tw, th);
+        jpeg = await canvasToJpegUnder(canvas, maxBytes);
+        attempts++;
+      }
+      return new File([jpeg], uniqueName(".jpg"), { type:"image/jpeg" });
+    } finally { close(); }
+  }
 
-    // --- Compression ---
-    async function compress(file, maxBytes=1_500_000, maxDim=2048){
-      const url=URL.createObjectURL(file); const img=new Image();
-      await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
-      URL.revokeObjectURL(url);
-      const c=document.createElement('canvas');
-      const scale = Math.max(img.naturalWidth,img.naturalHeight) > maxDim
-        ? maxDim/Math.max(img.naturalWidth,img.naturalHeight) : 1;
-      c.width=Math.round(img.naturalWidth*scale); c.height=Math.round(img.naturalHeight*scale);
-      const ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-      ctx.drawImage(img,0,0,c.width,c.height);
-      let lo=0.5, hi=0.95, best=null;
-      let blob=await new Promise(r=>c.toBlob(r,'image/jpeg',hi));
-      if(blob.size<=maxBytes) return new File([blob], replaceExt(file.name,'.jpg'), {type:'image/jpeg'});
-      for(let i=0;i<7;i++){ const mid=(lo+hi)/2; blob=await new Promise(r=>c.toBlob(r,'image/jpeg',mid));
-        if(blob.size<=maxBytes){best=blob;hi=mid;} else {lo=mid;} }
-      return new File([best||blob], replaceExt(file.name,'.jpg'), {type:'image/jpeg'});
-    }
-    const replaceExt=(n,e)=> (n.lastIndexOf('.')>0? n.slice(0,n.lastIndexOf('.')):n)+e;
+  // --- Gallery render + preview (Gallery Mode only) ---
+  let selectedKey = null;
 
-    // --- Gallery render + preview binding ---
-    async function loadGallery(){
-      const items=await garmentsList(12);
+  async function loadGallery(){
+    const items = await garmentsList(12);
+    // If we're in gallery mode, render the grid; otherwise, just update remaining counter
+    if ($("#galleryBlock").classList.contains("active")){
       renderGallery(items);
-      const remaining=Math.max(0, 3 - items.length);
-      setStatus(`You can upload ${remaining} more item(s).`, remaining? "" : "ok");
+    }
+    const remaining=Math.max(0, 3 - items.length);
+    setStatus(remaining ? `You can upload ${remaining} more item(s).` : `You've reached the limit (3).`, remaining? "" : "ok",  $("#galleryBlock").classList.contains("active") ? 2 : 1);
 
-      // If we have items and nothing selected, show the first in preview
-      if (items.length && !$("#preview").src) {
+    // In gallery mode, auto preview first if nothing selected
+    if ($("#galleryBlock").classList.contains("active")){
+      const previewEl = $("#preview");
+      if (items.length && (!previewEl.src || previewEl.src === location.href)) {
         setPreview(items[0].url, items[0].key);
       }
     }
+    return { items, remaining };
+  }
 
-    function setPreview(url, key){
-      const img = $("#preview");
-      img.src = url;
-      img.style.display = "block";
-      selectedKey = key;
+  function setPreview(url, key){
+    const img = $("#preview");
+    img.src = url;
+    img.style.display = "block";
+    selectedKey = key;
+    document.querySelectorAll("#gallery .tile").forEach(t => t.classList.remove("selected"));
+    const sel = document.querySelector(`.tile[data-key="${cssEscape(key)}"]`);
+    if (sel) sel.classList.add("selected");
+  }
 
-      // update selection highlight
-      document.querySelectorAll(".tile").forEach(t => t.classList.remove("selected"));
-      const sel = document.querySelector(`.tile[data-key="${cssEscape(key)}"]`);
+  function renderGallery(items){
+    const wrap=$("#gallery"); wrap.innerHTML="";
+    items.forEach(it=>{
+      const tile=document.createElement("div"); tile.className="tile"; tile.dataset.key=it.key;
+      const img=document.createElement("img"); img.src=it.url; img.alt=it.key;
+      img.addEventListener("click", ()=> setPreview(it.url, it.key));
+
+      const del=document.createElement("button"); del.className="del"; del.textContent="×"; del.title="Delete";
+      del.onclick=async e=>{
+        e.stopPropagation();
+        if(!confirm("Delete this clothing item?")) return;
+        try{
+          await garmentsDelete(it.key);
+          await loadGallery();
+          if (selectedKey === it.key){
+            $("#preview").style.display="none";
+            $("#preview").src="";
+            selectedKey=null;
+          }
+          haptic("success");
+        }catch(err){
+          alert(err.message||"Delete failed"); haptic("error");
+        }
+      };
+
+      tile.append(img, del);
+      wrap.appendChild(tile);
+    });
+
+    // restore selection
+    if (selectedKey){
+      const sel = document.querySelector(`.tile[data-key="${cssEscape(selectedKey)}"]`);
       if (sel) sel.classList.add("selected");
     }
+  }
 
-    // CSS.escape polyfill-ish for keys with slashes
-    function cssEscape(s){ return s.replace(/([ #;?%&,.+*~\':"!^$[\]()=>|/@])/g,'\\$1'); }
+  // --- Upload pipeline (shared for both modes) ---
+  async function uploadGarmentFile(file, whichStatus=1){
+    setStatus("Requesting presign…", "", whichStatus);
+    const { uploadUrl, key } = await garmentsPresign(file);
 
-    function renderGallery(items){
-      const wrap=$("#gallery"); wrap.innerHTML="";
-      items.forEach(it=>{
-        const tile=document.createElement("div"); tile.className="tile"; tile.dataset.key = it.key;
+    setStatus("Uploading…", "", whichStatus);
+    const put = await fetch(uploadUrl, {
+      method:"PUT",
+      headers:{ "Content-Type": file.type, "x-amz-server-side-encryption":"AES256" },
+      body:file
+    });
+    if (!put.ok) throw new Error("Upload failed");
 
-        const img=document.createElement("img"); img.src=it.url; img.alt=it.key;
-        img.addEventListener("click", () => setPreview(it.url, it.key));
-
-        const del=document.createElement("button"); del.className="del"; del.textContent="×"; del.title="Delete";
-        del.onclick=async e=>{
-          e.stopPropagation();
-          if(!confirm("Delete this clothing item?")) return;
-          try{
-            await garmentsDelete(it.key);
-            await loadGallery();
-            // If we deleted the selected one, clear preview (loadGallery will repopulate if items remain)
-            if (selectedKey === it.key) {
-              $("#preview").style.display = "none";
-              $("#preview").src = "";
-              selectedKey = null;
-            }
-            haptic("success");
-          } catch(err){
-            alert(err.message||"Delete failed"); haptic("error");
-          }
-        };
-
-        tile.append(img, del); wrap.appendChild(tile);
-      });
-
-      // restore selection highlight if still present
-      if (selectedKey) {
-        const sel = document.querySelector(`.tile[data-key="${cssEscape(selectedKey)}"]`);
-        if (sel) sel.classList.add("selected");
-      }
-    }
-
-    // --- Upload handler ---
-    document.getElementById("uploadBtn").onclick = async ()=>{
-      const files=[...document.getElementById("files").files];
-      if(files.length===0){ alert("Pick files first"); return; }
-
-      const current=await garmentsList(12);
-      if(current.length>=3){ setStatus("You already have 3 items.", "err"); return; }
-
-      const remaining=3-current.length, toUpload=files.slice(0,remaining);
-      try{
-        let lastPreviewUrl = null;
-        for(const f of toUpload){
-          setStatus(`Compressing ${f.name}…`);
-          const file=await compress(f);
-          setStatus(`Presigning ${file.name}…`);
-          const { uploadUrl, key }=await garmentsPresign(file);
-          setStatus(`Uploading ${file.name}…`);
-          const put=await fetch(uploadUrl,{
-            method:"PUT",
-            headers:{ "Content-Type": file.type, "x-amz-server-side-encryption":"AES256"},
-            body:file
-          });
-          if(!put.ok) throw new Error("Upload failed");
-          setStatus("Finalizing…");
-          const { message, duplicate, previewUrl } =
+    setStatus("Finalizing…", "", whichStatus);
+    const { previewUrl, duplicate, message } =
             await garmentsFinalize({ key, sizeBytes:file.size, contentType:file.type });
 
-          // If backend gives previewUrl for this garment, remember it
-          if (previewUrl) lastPreviewUrl = previewUrl;
+    setStatus(message || "Uploaded", duplicate ? "warn" : "ok", whichStatus);
+    tg.HapticFeedback?.notificationOccurred(duplicate ? "warning" : "success");
+    return { previewUrl };
+  }
 
-          setStatus(message, duplicate ? "warn" : "ok");
-        }
-        await loadGallery();
-        if (lastPreviewUrl) {
-          // Show the last uploaded/processed item in preview
-          setPreview(lastPreviewUrl, (new URL(lastPreviewUrl)).pathname || "");
-        }
-        haptic("success");
-      }catch(e){
-        console.error(e); setStatus(e.message||"Something went wrong","err"); haptic("error");
+  // --- Gallery mode: multi-upload respecting limit ---
+  $("#uploadBtn").onclick = async ()=>{
+    const files=[...$("#files").files];
+    if(files.length===0){ alert("Pick files first"); return; }
+
+    try{
+      const { items, remaining } = await loadGallery(); // get fresh remaining
+      if (remaining<=0) { setStatus("You already have 3 items.", "err", 2); return; }
+
+      const toUpload = files.slice(0, remaining);
+      let lastPreview = null;
+
+      for (const f of toUpload){
+        setStatus(`Compressing ${f.name}…`, "", 2);
+        const file = await compressImageToLimit(f);
+        const { previewUrl } = await uploadGarmentFile(file, 2);
+        if (previewUrl) lastPreview = previewUrl;
       }
-    };
 
-    document.addEventListener("DOMContentLoaded", ()=>{ loadGallery().catch(console.error); });
-  </script>
+      await loadGallery();
+      if (lastPreview){
+        setPreview(lastPreview, (new URL(lastPreview, location.href)).pathname || "");
+      }
+      haptic("success");
+    }catch(e){
+      console.error(e); setStatus(e.message||"Something went wrong","err",2); haptic("error");
+    }
+  };
+
+  // --- Camera flow (single upload) ---
+  const video = $("#camera");
+  const capturedImg = $("#captured");
+  const overlay = $("#camOverlay");
+  let stream = null;
+  let facing = "user";
+  let capturedBlob = null;
+
+  function resetCameraUI(){
+    if (capturedImg){ capturedImg.style.display="none"; capturedImg.src=""; }
+    if (video){ video.style.display="block"; try{ video.play(); }catch{} }
+    $("#captureBtn").disabled=false;
+    $("#retakeBtn").disabled=true;
+    $("#uploadCamBtn").style.display="none";
+    capturedBlob=null;
+    setStatus("", "", 1);
+  }
+  function stopCamera(){
+    if (stream){ for (const t of stream.getTracks()) t.stop(); stream=null; }
+  }
+  async function startCamera(){
+    try{
+      stopCamera();
+      // Block capture when user already has 3 garments
+      const { remaining } = await loadGallery();
+      if (remaining<=0){
+        overlay.textContent = "Limit reached (3). Delete an item to add more.";
+        overlay.style.display = "flex";
+        $("#captureBtn").disabled = true;
+        $("#retakeBtn").disabled = true;
+        $("#uploadCamBtn").style.display = "none";
+        return;
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:facing }, audio:false });
+      video.srcObject = stream;
+      await video.play().catch(()=>{});
+      overlay.style.display = "none";
+      resetCameraUI();
+    }catch(e){
+      console.error(e);
+      overlay.textContent = "Camera unavailable";
+      overlay.style.display = "flex";
+      $("#captureBtn").disabled = true;
+      $("#retakeBtn").disabled = true;
+      $("#uploadCamBtn").style.display = "none";
+    }
+  }
+
+  $("#flipBtn").onclick = async () => {
+    facing = (facing === "user" ? { exact:"environment" } : "user");
+    await startCamera();
+  };
+
+  $("#captureBtn").onclick = async () => {
+    if (!video.videoWidth) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    const c = document.createElement("canvas"); c.width=w; c.height=h;
+    c.getContext("2d").drawImage(video,0,0,w,h);
+    capturedBlob = await new Promise(r=>c.toBlob(r,"image/jpeg",0.95));
+
+    capturedImg.src = URL.createObjectURL(capturedBlob);
+    capturedImg.style.display = "block";
+    video.style.display = "none";
+    $("#retakeBtn").disabled = false;
+    $("#captureBtn").disabled = true;
+    $("#uploadCamBtn").style.display = "grid";
+  };
+
+  $("#retakeBtn").onclick = () => { resetCameraUI(); };
+
+  $("#uploadCamBtn").onclick = async () => {
+    if (!capturedBlob) return;
+    try{
+      setStatus("Compressing…", "", 1);
+      const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type:"image/jpeg" });
+      const file = await compressImageToLimit(rawFile);
+      await uploadGarmentFile(file, 1);
+      // Return to live camera and update remaining (no gallery grid render in camera mode)
+      await startCamera();
+      haptic("success");
+    }catch(e){
+      console.error(e); setStatus(e.message||"Upload failed","err",1); haptic("error");
+    }
+  };
+
+  // --- Mode switching ---
+  const camBtn = $("#cameraModeBtn");
+  const galBtn = $("#galleryModeBtn");
+  const camBlock = $("#cameraBlock");
+  const galBlock = $("#galleryBlock");
+
+  function activateCameraMode(){
+    camBtn.classList.add("active");
+    galBtn.classList.remove("active");
+    camBlock.classList.add("active");
+    galBlock.classList.remove("active");
+    setStatus("", "", 2); // clear gallery status
+    startCamera();
+  }
+  async function activateGalleryMode(){
+    galBtn.classList.add("active");
+    camBtn.classList.remove("active");
+    galBlock.classList.add("active");
+    camBlock.classList.remove("active");
+    setStatus("", "", 1); // clear camera status
+    stopCamera();
+    await loadGallery().catch(console.error);
+  }
+
+  camBtn.onclick = activateCameraMode;
+  galBtn.onclick = activateGalleryMode;
+
+  // Init
+  document.addEventListener("DOMContentLoaded", () => { activateCameraMode(); });
+  window.addEventListener("pagehide", stopCamera);
+  window.addEventListener("beforeunload", stopCamera);
+</script>
 </body>
 </html>
