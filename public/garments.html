@@ -31,9 +31,17 @@
 
     /* camera */
     #cameraBox{margin-top:10px; border-radius:12px; overflow:hidden; background:#000; aspect-ratio:3/4; position:relative}
-    #camera{width:100%; height:100%; object-fit:cover; display:block}
+    #camera{width:100%; height:100%; object-fit:cover; display:none}
     #captured{display:none; width:100%; height:100%; object-fit:cover}
-    .cam-overlay{position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:#fff; background:rgba(0,0,0,.25); font-weight:600}
+    .cam-overlay{
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      color:#fff; background:rgba(0,0,0,.35); font-weight:600; text-align:center; padding:16px;
+    }
+    .cam-overlay .stack{display:grid; gap:10px; justify-items:center}
+    .cam-overlay button{
+      padding:10px 14px; border-radius:10px; border:none; background:#4a90e2; color:#fff; font-weight:700; cursor:pointer;
+    }
+
     .cam-controls{
       position:absolute; left:0; right:0; bottom:10px;
       display:grid; grid-template-columns:64px 1fr 64px; gap:10px; align-items:center; padding:0 12px; pointer-events:none;
@@ -78,17 +86,23 @@
   <div id="cameraBox">
     <video id="camera" playsinline autoplay muted></video>
     <img id="captured" alt="Captured garment preview" />
-    <div id="camOverlay" class="cam-overlay">Camera paused</div>
+    <!-- Start/Errors overlay (tap-to-start satisfies iOS gesture requirement) -->
+    <div id="camOverlay" class="cam-overlay">
+      <div class="stack">
+        <div id="camOverlayMsg">Tap to enable camera</div>
+        <button id="enableCamBtn" type="button">Enable camera</button>
+      </div>
+    </div>
 
     <div class="cam-controls">
       <div class="left">
         <div class="control-stack">
-          <button id="flipBtn" class="fab-secondary" type="button">⇆</button>
+          <button id="flipBtn" class="fab-secondary" type="button" disabled>⇆</button>
           <div class="label">Flip</div>
         </div>
       </div>
       <div class="center">
-        <button id="captureBtn" class="fab" type="button">●</button>
+        <button id="captureBtn" class="fab" type="button" disabled>●</button>
         <button id="uploadCamBtn" class="fab" type="button" style="display:none;">↑</button>
       </div>
       <div class="right">
@@ -124,9 +138,7 @@
   const $ = s => document.querySelector(s);
   const setStatus = (m, cls="", which=1) => {
     const el = which === 1 ? $("#status") : $("#status2");
-    if (!el) return;
-    el.className = cls;
-    el.textContent = m || "";
+    if (!el) return; el.className = cls; el.textContent = m || "";
   };
   const haptic = t => tg?.HapticFeedback?.notificationOccurred?.(t);
 
@@ -175,7 +187,7 @@
     return res.json(); // { ok:true }
   }
 
-  // --- Compression (same as selfie flow) ---
+  // --- Compression ---
   const MAX_BYTES = 1_500_000, MAX_DIM = 2048;
 
   async function fileToBitmap(file){
@@ -224,26 +236,35 @@
     } finally { close(); }
   }
 
-  // --- Gallery render + preview (Gallery Mode only) ---
+  // --- Gallery render (only in Gallery mode) ---
   let selectedKey = null;
 
-  async function loadGallery(){
-    const items = await garmentsList(12);
-    // If we're in gallery mode, render the grid; otherwise, just update remaining counter
-    if ($("#galleryBlock").classList.contains("active")){
-      renderGallery(items);
-    }
-    const remaining=Math.max(0, 3 - items.length);
-    setStatus(remaining ? `You can upload ${remaining} more item(s).` : `You've reached the limit (3).`, remaining? "" : "ok",  $("#galleryBlock").classList.contains("active") ? 2 : 1);
+  async function loadGallery(renderGrid=true){
+    try{
+      const items = await garmentsList(12);
+      const remaining = Math.max(0, 3 - items.length);
 
-    // In gallery mode, auto preview first if nothing selected
-    if ($("#galleryBlock").classList.contains("active")){
-      const previewEl = $("#preview");
-      if (items.length && (!previewEl.src || previewEl.src === location.href)) {
-        setPreview(items[0].url, items[0].key);
+      if (renderGrid){
+        renderGallery(items);
+        const previewEl = $("#preview");
+        if (items.length && (!previewEl.src || previewEl.src === location.href)) {
+          setPreview(items[0].url, items[0].key);
+        }
+        setStatus(remaining ? `You can upload ${remaining} more item(s).` : `You've reached the limit (3).`, remaining? "" : "ok", 2);
+      } else {
+        // Camera mode: only show remaining count in camera status area
+        setStatus(remaining ? `You can upload ${remaining} more item(s).` : `Limit reached (3).`, remaining? "" : "ok", 1);
       }
+      return { items, remaining };
+    }catch(e){
+      // Never block UI; just show message in whichever is visible
+      if ($("#galleryBlock").classList.contains("active")) {
+        setStatus("Failed to load gallery", "err", 2);
+      } else {
+        setStatus("Failed to fetch limit; you can still try camera.", "warn", 1);
+      }
+      return { items:[], remaining:3 };
     }
-    return { items, remaining };
   }
 
   function setPreview(url, key){
@@ -269,7 +290,7 @@
         if(!confirm("Delete this clothing item?")) return;
         try{
           await garmentsDelete(it.key);
-          await loadGallery();
+          await loadGallery(true);
           if (selectedKey === it.key){
             $("#preview").style.display="none";
             $("#preview").src="";
@@ -292,7 +313,7 @@
     }
   }
 
-  // --- Upload pipeline (shared for both modes) ---
+  // --- Upload pipeline (shared) ---
   async function uploadGarmentFile(file, whichStatus=1){
     setStatus("Requesting presign…", "", whichStatus);
     const { uploadUrl, key } = await garmentsPresign(file);
@@ -320,7 +341,7 @@
     if(files.length===0){ alert("Pick files first"); return; }
 
     try{
-      const { items, remaining } = await loadGallery(); // get fresh remaining
+      const { remaining } = await loadGallery(false); // don't render grid twice
       if (remaining<=0) { setStatus("You already have 3 items.", "err", 2); return; }
 
       const toUpload = files.slice(0, remaining);
@@ -333,7 +354,7 @@
         if (previewUrl) lastPreview = previewUrl;
       }
 
-      await loadGallery();
+      await loadGallery(true);
       if (lastPreview){
         setPreview(lastPreview, (new URL(lastPreview, location.href)).pathname || "");
       }
@@ -343,17 +364,19 @@
     }
   };
 
-  // --- Camera flow (single upload) ---
+  // --- Camera flow (gesture-gated) ---
   const video = $("#camera");
   const capturedImg = $("#captured");
   const overlay = $("#camOverlay");
+  const overlayMsg = $("#camOverlayMsg");
+  const enableCamBtn = $("#enableCamBtn");
   let stream = null;
   let facing = "user";
   let capturedBlob = null;
 
   function resetCameraUI(){
     if (capturedImg){ capturedImg.style.display="none"; capturedImg.src=""; }
-    if (video){ video.style.display="block"; try{ video.play(); }catch{} }
+    if (video){ video.style.display="block"; }
     $("#captureBtn").disabled=false;
     $("#retakeBtn").disabled=true;
     $("#uploadCamBtn").style.display="none";
@@ -362,35 +385,39 @@
   }
   function stopCamera(){
     if (stream){ for (const t of stream.getTracks()) t.stop(); stream=null; }
+    video.srcObject = null;
+    video.style.display = "none";
   }
+
   async function startCamera(){
     try{
-      stopCamera();
-      // Block capture when user already has 3 garments
-      const { remaining } = await loadGallery();
-      if (remaining<=0){
-        overlay.textContent = "Limit reached (3). Delete an item to add more.";
-        overlay.style.display = "flex";
-        $("#captureBtn").disabled = true;
-        $("#retakeBtn").disabled = true;
-        $("#uploadCamBtn").style.display = "none";
-        return;
-      }
-
-      stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:facing }, audio:false });
+      // Don’t await network here; just attempt camera immediately
+      const gum = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:facing }, audio:false });
+      stream = gum;
       video.srcObject = stream;
       await video.play().catch(()=>{});
+      video.style.display = "block";
+
       overlay.style.display = "none";
-      resetCameraUI();
+      $("#flipBtn").disabled = false;
+      $("#captureBtn").disabled = false;
+      $("#retakeBtn").disabled = true;
     }catch(e){
       console.error(e);
-      overlay.textContent = "Camera unavailable";
+      overlayMsg.textContent = "Camera unavailable. Check permissions and try again.";
       overlay.style.display = "flex";
+      $("#flipBtn").disabled = true;
       $("#captureBtn").disabled = true;
       $("#retakeBtn").disabled = true;
       $("#uploadCamBtn").style.display = "none";
     }
   }
+
+  enableCamBtn.addEventListener('click', async ()=>{ // user gesture -> iOS happy
+    await startCamera();
+    // also show remaining (non-blocking)
+    loadGallery(false).catch(()=>{});
+  });
 
   $("#flipBtn").onclick = async () => {
     facing = (facing === "user" ? { exact:"environment" } : "user");
@@ -421,15 +448,17 @@
       const rawFile = new File([capturedBlob], uniqueName(".jpg"), { type:"image/jpeg" });
       const file = await compressImageToLimit(rawFile);
       await uploadGarmentFile(file, 1);
-      // Return to live camera and update remaining (no gallery grid render in camera mode)
+      // Return to live camera and refresh remaining silently
+      resetCameraUI();
       await startCamera();
+      loadGallery(false).catch(()=>{});
       haptic("success");
     }catch(e){
       console.error(e); setStatus(e.message||"Upload failed","err",1); haptic("error");
     }
   };
 
-  // --- Mode switching ---
+  // --- Mode switching (never blocked by async) ---
   const camBtn = $("#cameraModeBtn");
   const galBtn = $("#galleryModeBtn");
   const camBlock = $("#cameraBlock");
@@ -440,24 +469,38 @@
     galBtn.classList.remove("active");
     camBlock.classList.add("active");
     galBlock.classList.remove("active");
+    // Don’t auto-start camera; require a tap to satisfy iOS
+    stopCamera();
+    overlayMsg.textContent = "Tap to enable camera";
+    overlay.style.display = "flex";
+    $("#flipBtn").disabled = true;
+    $("#captureBtn").disabled = true;
+    $("#retakeBtn").disabled = true;
+    $("#uploadCamBtn").style.display = "none";
     setStatus("", "", 2); // clear gallery status
-    startCamera();
+    // Optionally show remaining count (doesn't block UI)
+    loadGallery(false).catch(()=>{});
   }
+
   async function activateGalleryMode(){
     galBtn.classList.add("active");
     camBtn.classList.remove("active");
     galBlock.classList.add("active");
     camBlock.classList.remove("active");
-    setStatus("", "", 1); // clear camera status
     stopCamera();
-    await loadGallery().catch(console.error);
+    setStatus("", "", 1); // clear camera status
+    // Render gallery grid now
+    await loadGallery(true).catch(()=>{});
   }
 
   camBtn.onclick = activateCameraMode;
   galBtn.onclick = activateGalleryMode;
 
-  // Init
-  document.addEventListener("DOMContentLoaded", () => { activateCameraMode(); });
+  // Init: default to Camera UI but do NOT start camera until user taps
+  document.addEventListener("DOMContentLoaded", () => {
+    activateCameraMode();
+  });
+
   window.addEventListener("pagehide", stopCamera);
   window.addEventListener("beforeunload", stopCamera);
 </script>
