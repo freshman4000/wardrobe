@@ -38,9 +38,13 @@
 
   <div id="gallery"></div>
 
+  <script src="/config.js"></script>
+  <script>
+    fetch(`${window.BACKEND_BASE}/v1/ping`);
+  </script>
   <script>
     // --- Config / Telegram ---
-    const BACKEND_BASE = "https://mentioned-cut-fighting-identifying.trycloudflare.com";
+    //const BACKEND_BASE = "https://mentioned-cut-fighting-identifying.trycloudflare.com";
     const tg = window.Telegram?.WebApp || { initData: "" };
     tg?.ready?.();
 
